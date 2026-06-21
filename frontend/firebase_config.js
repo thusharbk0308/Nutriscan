@@ -11,7 +11,7 @@
 // ============================================================================
 
 const firebaseConfig = {
-    apiKey: "AIzaSyC1xT1lOKi-t9whHreyRFX2qO5QOZGZhw",
+    apiKey: "AIzaSyC1xT1lOKi-t9whHreyRFX2qO5QOZGZhwc",
     authDomain: "nutriscan-839dc.firebaseapp.com",
     projectId: "nutriscan-839dc",
     storageBucket: "nutriscan-839dc.firebasestorage.app",
