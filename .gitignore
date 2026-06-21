@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environment
+venv/
+.venv/
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+*.lnk
+
+# Large files
+*.pt
+*.pkl
+*.pb
+*.pth
+*.onnx
+models/health_model.pkl
+models/FSRCNN_x2.pb
+yolov8n.pt
+
+# Data & uploads
+data/uploads/
+data/sample_images/
+run_output.txt
+
+# Database
+database/
+*.db
+
+# Scratch / temp
+scratch/
+tests/temp_*

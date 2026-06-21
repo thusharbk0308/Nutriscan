@@ -1,0 +1,604 @@
+document.addEventListener('DOMContentLoaded', () => {
+    // =====================================================================
+    // Session State
+    // =====================================================================
+    let currentUser = null;
+
+    // =====================================================================
+    // DOM Elements - Auth
+    // =====================================================================
+    const loginOverlay = document.getElementById('login-overlay');
+    const mainApp = document.getElementById('main-app');
+    const btnGoogleLogin = document.getElementById('btn-google-login');
+    const btnDevBypass = document.getElementById('btn-dev-bypass');
+    const loginStatus = document.getElementById('login-status');
+
+    // =====================================================================
+    // DOM Elements - App
+    // =====================================================================
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabPanes = document.querySelectorAll('.tab-pane');
+    const btnTabDiagnostics = document.getElementById('btn-tab-diagnostics');
+    const btnSaveProfile = document.getElementById('btn-save-profile');
+    const btnLogout = document.getElementById('btn-logout');
+    const userDisplayName = document.getElementById('user-display-name');
+    const profileAvatar = document.getElementById('profile-avatar');
+    const profileEmail = document.getElementById('profile-email');
+    const saveStatus = document.getElementById('save-status');
+
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadContent = document.getElementById('upload-content');
+    const imagePreview = document.getElementById('image-preview');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const terminal = document.getElementById('terminal-log');
+    const scanEffect = document.getElementById('scan-effect');
+    const radarEffect = document.getElementById('radar-effect');
+    
+    const loadingDiv = document.getElementById('loading');
+    const resultsDiv = document.getElementById('results');
+    const resetBtn = document.getElementById('reset-btn');
+    
+    let currentFile = null;
+
+    // =====================================================================
+    // Firebase Google Sign-In
+    // =====================================================================
+    let googleProvider = null;
+    try {
+        googleProvider = new firebase.auth.GoogleAuthProvider();
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+    } catch (e) {
+        console.warn('Firebase Auth not available:', e.message);
+    }
+
+    btnGoogleLogin.addEventListener('click', async () => {
+        btnGoogleLogin.disabled = true;
+        btnGoogleLogin.querySelector('span').textContent = 'AUTHENTICATING...';
+        loginStatus.textContent = '';
+
+        if (!googleProvider) {
+            loginStatus.textContent = 'FIREBASE_AUTH_UNAVAILABLE. USE DEV BYPASS.';
+            loginStatus.style.color = 'var(--danger)';
+            btnGoogleLogin.disabled = false;
+            btnGoogleLogin.querySelector('span').textContent = 'SIGN IN WITH GOOGLE';
+            return;
+        }
+
+        try {
+            const result = await firebase.auth().signInWithPopup(googleProvider);
+            const user = result.user;
+            const email = user.email;
+            const name = user.displayName || email.split('@')[0];
+            const photoURL = user.photoURL;
+
+            loginStatus.textContent = 'FIREBASE_AUTH_SUCCESS. SYNCING_WITH_SERVER...';
+            loginStatus.style.color = 'var(--success)';
+
+            // Sync with our backend
+            const response = await fetch('/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email, name })
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                currentUser = { email, name, photoURL, ...data.user };
+
+                // Update header UI
+                userDisplayName.textContent = name.toUpperCase();
+                if (photoURL) {
+                    profileAvatar.src = photoURL;
+                    profileAvatar.style.display = 'inline-block';
+                }
+                profileEmail.textContent = email;
+
+                loginOverlay.classList.remove('active');
+                mainApp.style.display = 'block';
+
+                if (data.is_new_user) {
+                    // Force new users to fill out their health profile
+                    switchTab('tab-profile');
+                    addLog('NEW_USER_DETECTED. CONFIGURE_HEALTH_PROFILE.', 'warn');
+                } else {
+                    // Populate existing profile toggles from DB
+                    document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
+                    document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
+                    document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
+                    document.getElementById('weight_loss_goal').checked = !!currentUser.weight_loss_goal;
+                    document.getElementById('is_vegan').checked = !!currentUser.is_vegan;
+                    switchTab('tab-scan');
+                    addLog(`SESSION_INITIALIZED: ${name} (${email})`, 'success');
+                }
+            } else {
+                loginStatus.textContent = 'SERVER_SYNC_FAILED. TRY_AGAIN.';
+                loginStatus.style.color = 'var(--danger)';
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            if (error.code === 'auth/popup-closed-by-user') {
+                loginStatus.textContent = 'LOGIN_CANCELLED_BY_USER.';
+            } else if (error.code === 'auth/network-request-failed') {
+                loginStatus.textContent = 'NETWORK_ERROR. CHECK_CONNECTION.';
+            } else if (error.message && error.message.includes('auth/configuration-not-found')) {
+                loginStatus.textContent = 'FIREBASE_NOT_CONFIGURED. UPDATE firebase_config.js';
+            } else {
+                loginStatus.textContent = `AUTH_ERROR: ${error.code || error.message || 'UNKNOWN'}`;
+            }
+            loginStatus.style.color = 'var(--danger)';
+        } finally {
+            btnGoogleLogin.disabled = false;
+            btnGoogleLogin.querySelector('span').textContent = 'SIGN IN WITH GOOGLE';
+        }
+    });
+
+    if (btnDevBypass) {
+        btnDevBypass.addEventListener('click', async () => {
+            btnDevBypass.disabled = true;
+            btnDevBypass.querySelector('span').textContent = 'INITIALIZING BYPASS...';
+            loginStatus.textContent = 'DEV_BYPASS_INIT. SYNCING_WITH_SERVER...';
+            loginStatus.style.color = 'var(--primary)';
+
+            const email = "dev@nutriscan.ai";
+            const name = "DEVELOPER";
+
+            try {
+                // Sync with our backend
+                const response = await fetch('/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, name })
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    currentUser = { email, name, photoURL: null, ...data.user };
+
+                    // Update header UI
+                    userDisplayName.textContent = name.toUpperCase();
+                    profileEmail.textContent = email;
+
+                    loginOverlay.classList.remove('active');
+                    mainApp.style.display = 'block';
+
+                    if (data.is_new_user) {
+                        switchTab('tab-profile');
+                        addLog('DEV_BYPASS_INIT. CONFIGURE_HEALTH_PROFILE.', 'warn');
+                    } else {
+                        // Populate existing profile toggles
+                        document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
+                        document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
+                        document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
+                        document.getElementById('weight_loss_goal').checked = !!currentUser.weight_loss_goal;
+                        document.getElementById('is_vegan').checked = !!currentUser.is_vegan;
+                        switchTab('tab-scan');
+                        addLog(`DEV_SESSION_INITIALIZED: ${name} (${email})`, 'success');
+                    }
+                } else {
+                    loginStatus.textContent = 'DEV_BYPASS_FAILED. SERVER_OFFLINE.';
+                    loginStatus.style.color = 'var(--danger)';
+                }
+            } catch (error) {
+                loginStatus.textContent = 'DEV_BYPASS_ERROR. SERVER_UNREACHABLE.';
+                loginStatus.style.color = 'var(--danger)';
+            } finally {
+                btnDevBypass.disabled = false;
+                btnDevBypass.querySelector('span').textContent = 'DEVELOPER BYPASS (DEV MODE)';
+            }
+        });
+    }
+
+
+    // =====================================================================
+    // Auto-login: check if user is already signed in (Firebase persistence)
+    // =====================================================================
+    try {
+        firebase.auth().onAuthStateChanged(async (user) => {
+            if (user && !currentUser) {
+                const email = user.email;
+                const name = user.displayName || email.split('@')[0];
+                const photoURL = user.photoURL;
+
+                try {
+                    const response = await fetch('/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, name })
+                    });
+                    const data = await response.json();
+
+                    if (data.status === 'success') {
+                        currentUser = { email, name, photoURL, ...data.user };
+
+                        userDisplayName.textContent = name.toUpperCase();
+                        if (photoURL) {
+                            profileAvatar.src = photoURL;
+                            profileAvatar.style.display = 'inline-block';
+                        }
+                        profileEmail.textContent = email;
+
+                        // Populate profile toggles
+                        document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
+                        document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
+                        document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
+                        document.getElementById('weight_loss_goal').checked = !!currentUser.weight_loss_goal;
+                        document.getElementById('is_vegan').checked = !!currentUser.is_vegan;
+
+                        loginOverlay.classList.remove('active');
+                        mainApp.style.display = 'block';
+                        addLog(`AUTO_RESTORED_SESSION: ${name}`, 'success');
+                    }
+                } catch (e) {
+                    // Server not reachable — stay on login screen
+                    console.warn('Auto-login server sync failed:', e);
+                }
+            }
+        });
+    } catch (e) {
+        console.warn('Firebase onAuthStateChanged unavailable:', e.message);
+    }
+
+    // =====================================================================
+    // Logout
+    // =====================================================================
+    btnLogout.addEventListener('click', async () => {
+        try {
+            await firebase.auth().signOut();
+        } catch (e) {
+            // Ignore sign-out errors
+        }
+        currentUser = null;
+        mainApp.style.display = 'none';
+        loginOverlay.classList.add('active');
+        loginStatus.textContent = '';
+
+        // Reset UI
+        currentFile = null;
+        imagePreview.classList.add('hidden');
+        uploadContent.classList.remove('hidden');
+        resultsDiv.classList.add('hidden');
+        analyzeBtn.classList.add('hidden');
+        btnTabDiagnostics.disabled = true;
+        terminal.innerHTML = '<div class="terminal-line cmd">READY FOR INPUT...</div>';
+    });
+
+    // =====================================================================
+    // Profile Save Flow
+    // =====================================================================
+    btnSaveProfile.addEventListener('click', async () => {
+        if (!currentUser) return;
+        
+        btnSaveProfile.textContent = 'SAVING...';
+        btnSaveProfile.disabled = true;
+
+        const profileData = {
+            email: currentUser.email,
+            is_diabetic: document.getElementById('is_diabetic').checked,
+            has_high_bp: document.getElementById('has_high_bp').checked,
+            heart_condition: document.getElementById('heart_condition').checked,
+            weight_loss_goal: document.getElementById('weight_loss_goal').checked,
+            is_vegan: document.getElementById('is_vegan').checked
+        };
+
+        try {
+            const response = await fetch('/auth/profile', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(profileData)
+            });
+            const data = await response.json();
+
+            if (data.status === 'success') {
+                // Update local user state
+                currentUser.is_diabetic = profileData.is_diabetic;
+                currentUser.has_high_bp = profileData.has_high_bp;
+                currentUser.heart_condition = profileData.heart_condition;
+                currentUser.weight_loss_goal = profileData.weight_loss_goal;
+                currentUser.is_vegan = profileData.is_vegan;
+
+                btnSaveProfile.textContent = 'PROFILE_SYNCED';
+                saveStatus.textContent = 'All conditions saved to database.';
+                saveStatus.style.opacity = '1';
+                setTimeout(() => { saveStatus.style.opacity = '0'; }, 3000);
+            } else {
+                btnSaveProfile.textContent = 'SYNC_FAILED';
+            }
+        } catch (e) {
+            btnSaveProfile.textContent = 'CONNECTION_ERROR';
+        }
+
+        setTimeout(() => {
+            btnSaveProfile.textContent = 'SAVE_HEALTH_PROFILE';
+            btnSaveProfile.disabled = false;
+        }, 2000);
+    });
+
+    // =====================================================================
+    // Tab Switching
+    // =====================================================================
+    function switchTab(targetId) {
+        tabBtns.forEach(btn => {
+            if(btn.dataset.target === targetId) btn.classList.add('active');
+            else btn.classList.remove('active');
+        });
+        tabPanes.forEach(pane => {
+            if(pane.id === targetId) pane.classList.add('active');
+            else pane.classList.remove('active');
+        });
+    }
+
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if(btn.disabled) return;
+            switchTab(btn.dataset.target);
+        });
+    });
+
+    // =====================================================================
+    // Terminal Utilities
+    // =====================================================================
+    function typeWriter(element, text, index = 0, speed = 15) {
+        if (index < text.length) {
+            element.textContent += text.charAt(index);
+            terminal.scrollTop = terminal.scrollHeight;
+            setTimeout(() => typeWriter(element, text, index + 1, speed), speed);
+        }
+    }
+
+    function addLog(msg, type = '') {
+        const line = document.createElement('div');
+        line.className = `terminal-line ${type}`;
+        line.textContent = `> [${new Date().toLocaleTimeString()}] `;
+        terminal.appendChild(line);
+        typeWriter(line, msg);
+    }
+
+    // =====================================================================
+    // File Handling
+    // =====================================================================
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = 'var(--primary)';
+        dropZone.style.background = 'rgba(0, 242, 255, 0.08)';
+    });
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.style.borderColor = 'rgba(0, 242, 255, 0.3)';
+        dropZone.style.background = 'rgba(0, 242, 255, 0.02)';
+    });
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.borderColor = 'rgba(0, 242, 255, 0.3)';
+        dropZone.style.background = 'rgba(0, 242, 255, 0.02)';
+        if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) handleFile(e.target.files[0]);
+    });
+
+    function handleFile(file) {
+        if (!file.type.startsWith('image/')) {
+            addLog('ERROR: INVALID_FILE_FORMAT', 'warn');
+            return;
+        }
+        currentFile = file;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            imagePreview.src = e.target.result;
+            imagePreview.classList.remove('hidden');
+            uploadContent.classList.add('hidden');
+            analyzeBtn.classList.remove('hidden');
+            addLog(`FILE_LOADED: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'success');
+        };
+        reader.readAsDataURL(file);
+    }
+
+    // =====================================================================
+    // Analysis Pipeline
+    // =====================================================================
+    analyzeBtn.addEventListener('click', async () => {
+        if (!currentFile || !currentUser) return;
+        
+        analyzeBtn.classList.add('hidden');
+        scanEffect.classList.remove('hidden');
+        radarEffect.classList.remove('hidden');
+        addLog('INITIALIZING_NEURAL_SCAN_SEQUENCE...', 'cmd');
+        
+        const formData = new FormData();
+        formData.append('file', currentFile);
+        formData.append('email', currentUser.email);
+        
+        // Show which profile conditions are active
+        const activeConditions = [];
+        if (currentUser.is_diabetic) activeConditions.push('DIABETIC');
+        if (currentUser.has_high_bp) activeConditions.push('HYPERTENSION');
+        if (currentUser.heart_condition) activeConditions.push('HEART');
+        if (currentUser.weight_loss_goal) activeConditions.push('WEIGHT_LOSS');
+        if (currentUser.is_vegan) activeConditions.push('VEGAN');
+
+        setTimeout(() => addLog('FETCHING_USER_HEALTH_PROFILE_DB...', 'cmd'), 500);
+        if (activeConditions.length > 0) {
+            setTimeout(() => addLog(`ACTIVE_PROFILE_CONDITIONS: [${activeConditions.join(', ')}]`, 'warn'), 1000);
+        } else {
+            setTimeout(() => addLog('NO_ACTIVE_HEALTH_CONDITIONS. DEFAULT_SCORING.', 'cmd'), 1000);
+        }
+        setTimeout(() => addLog('EXECUTING_OCR_EXTRACTION_LAYER...', 'cmd'), 1500);
+        
+        try {
+            const response = await fetch('/analyze', {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                addLog('DATA_STREAM_CAPTURED_SUCCESSFULLY', 'success');
+                setTimeout(() => {
+                    scanEffect.classList.add('hidden');
+                    radarEffect.classList.add('hidden');
+                    btnTabDiagnostics.disabled = false;
+                    switchTab('tab-diagnostics');
+                    displayResults(data, activeConditions);
+                }, 1500);
+            } else {
+                addLog('CRITICAL_FAILURE: ' + (data.message || 'UNKNOWN_ERROR'), 'warn');
+                scanEffect.classList.add('hidden');
+                radarEffect.classList.add('hidden');
+                analyzeBtn.classList.remove('hidden');
+            }
+        } catch (error) {
+            addLog('CONNECTION_TERMINATED: SERVER_UNREACHABLE', 'warn');
+            scanEffect.classList.add('hidden');
+            radarEffect.classList.add('hidden');
+            analyzeBtn.classList.remove('hidden');
+        }
+    });
+
+    // =====================================================================
+    // Display Results (with personalization info)
+    // =====================================================================
+    function displayResults(data, activeConditions) {
+        resultsDiv.classList.remove('hidden');
+        loadingDiv.classList.add('hidden');
+        
+        const finalResult = data.final_result;
+        const score = (finalResult.final_health_score * 100).toFixed(0);
+        
+        const scoreValue = document.getElementById('score-value');
+        scoreValue.textContent = score;
+        
+        const scoreCircle = document.getElementById('score-circle');
+        let color = '#00f2ff';
+        if (finalResult.risk_level === 'Moderate') color = '#ffcc00';
+        if (finalResult.risk_level === 'High') color = '#ff4d4d';
+        
+        scoreCircle.style.background = `conic-gradient(${color} ${score}%, rgba(255,255,255,0.05) 0%)`;
+        scoreValue.style.color = color;
+        scoreCircle.style.boxShadow = `0 0 30px ${color}40`;
+
+        const riskBadge = document.getElementById('risk-badge');
+        riskBadge.textContent = `${finalResult.risk_level.toUpperCase()}_RISK`;
+        riskBadge.style.backgroundColor = color + '22';
+        riskBadge.style.color = color;
+        riskBadge.style.border = `1px solid ${color}`;
+        riskBadge.style.padding = '6px 14px';
+        riskBadge.style.borderRadius = '6px';
+        riskBadge.style.fontFamily = 'var(--font-mono)';
+        riskBadge.style.fontSize = '0.8rem';
+        riskBadge.style.fontWeight = 'bold';
+        riskBadge.style.boxShadow = `0 0 10px ${color}30`;
+
+        const summary = document.getElementById('ai-verdict-summary');
+        if (activeConditions.length > 0) {
+            summary.textContent = `Score adjusted for ${currentUser.name}'s health profile: [${activeConditions.join(', ')}]. ${finalResult.risk_level} risk level.`;
+        } else {
+            summary.textContent = `Standard analysis for ${currentUser.name}. ${finalResult.risk_level} risk level.`;
+        }
+
+        // Show personalization badges if any conditions are active
+        const badgesDiv = document.getElementById('personalization-badges');
+        const conditionsDiv = document.getElementById('active-conditions');
+        conditionsDiv.innerHTML = '';
+
+        if (activeConditions.length > 0) {
+            badgesDiv.classList.remove('hidden');
+            const conditionLabels = {
+                'DIABETIC': { icon: '🩸', desc: 'Sugar penalties applied' },
+                'HYPERTENSION': { icon: '💉', desc: 'Sodium penalties applied' },
+                'HEART': { icon: '❤️', desc: 'Sat fat + cholesterol penalties' },
+                'WEIGHT_LOSS': { icon: '⚖️', desc: 'Caloric density penalties' },
+                'VEGAN': { icon: '🌿', desc: 'Cholesterol flagged' }
+            };
+            activeConditions.forEach(cond => {
+                const info = conditionLabels[cond] || { icon: '⚙️', desc: cond };
+                const badge = document.createElement('div');
+                badge.className = 'condition-badge';
+                badge.innerHTML = `<span>${info.icon}</span> <span class="mono">${cond}</span> <small>${info.desc}</small>`;
+                conditionsDiv.appendChild(badge);
+            });
+        } else {
+            badgesDiv.classList.add('hidden');
+        }
+
+        // Nutrient table
+        const nutrientList = document.getElementById('nutrient-list');
+        nutrientList.innerHTML = '';
+
+        for (const [key, val] of Object.entries(data.raw_nutrition)) {
+            const tr = document.createElement('tr');
+            const formattedKey = key.toUpperCase().replace(/_/g, '_');
+            const formattedVal = val.value + (val.unit ? val.unit : '');
+            
+            let limitDisplay = 'N/A';
+            if (val.who_limit) {
+                const unit = (key === 'sodium' || key === 'cholesterol') ? 'mg' : 'g';
+                limitDisplay = val.who_limit + unit;
+            }
+            
+            let valColor = 'var(--primary)';
+            if (val.percent_daily > 20) valColor = 'var(--danger)';
+            else if (val.percent_daily > 10) valColor = 'var(--warning)';
+
+            tr.innerHTML = `
+                <td class="nutrient-name">${formattedKey}</td>
+                <td class="nutrient-val" style="color: ${valColor}">${formattedVal}</td>
+                <td class="nutrient-val" style="color: var(--text-muted); font-size: 0.75rem;">${limitDisplay}</td>
+            `;
+            nutrientList.appendChild(tr);
+        }
+
+        // Insights / flags
+        const insightContainer = document.getElementById('insight-container');
+        insightContainer.innerHTML = '';
+        
+        if (finalResult.flags && finalResult.flags.length > 0) {
+            finalResult.flags.forEach(flag => {
+                const div = document.createElement('div');
+                div.className = `insight-item ${flag.type === 'risk' ? 'risk' : ''}`;
+                const icon = flag.type === 'risk' ? '&#9888;' : '&#8505;';
+                div.innerHTML = `
+                    <div class="insight-title">
+                        <span>${icon}</span>
+                        <span>${flag.type.toUpperCase()}_FLAG</span>
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-main); line-height: 1.4;">${flag.message}</div>
+                `;
+                insightContainer.appendChild(div);
+            });
+        } else {
+            insightContainer.innerHTML = '<div class="insight-item"><div class="insight-title"><span>&#10003;</span> NO_RISKS_DETECTED</div><div style="font-size: 0.85rem; color: var(--text-main)">Neural profile analysis clear.</div></div>';
+        }
+    }
+
+    // =====================================================================
+    // Reset
+    // =====================================================================
+    resetBtn.addEventListener('click', () => {
+        currentFile = null;
+        imagePreview.classList.add('hidden');
+        uploadContent.classList.remove('hidden');
+        resultsDiv.classList.add('hidden');
+        loadingDiv.classList.remove('hidden');
+        analyzeBtn.classList.add('hidden');
+        btnTabDiagnostics.disabled = true;
+        switchTab('tab-scan');
+        addLog('SESSION_RESET. READY_FOR_NEW_STREAM.', 'cmd');
+    });
+
+    // =====================================================================
+    // Background Animation
+    // =====================================================================
+    setInterval(() => {
+        const bg1 = document.querySelector('.bg-1');
+        const bg2 = document.querySelector('.bg-2');
+        if (bg1.classList.contains('active')) {
+            bg1.classList.remove('active');
+            bg2.classList.add('active');
+        } else {
+            bg2.classList.remove('active');
+            bg1.classList.add('active');
+        }
+    }, 15000);
+});
