@@ -606,17 +606,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // =====================================================================
-    // Background Animation
+    // Background Slideshow — 3 nutrition images cycling
     // =====================================================================
-    setInterval(() => {
-        const bg1 = document.querySelector('.bg-1');
-        const bg2 = document.querySelector('.bg-2');
-        if (bg1.classList.contains('active')) {
-            bg1.classList.remove('active');
-            bg2.classList.add('active');
-        } else {
-            bg2.classList.remove('active');
-            bg1.classList.add('active');
-        }
-    }, 15000);
+    const bgSlides = document.querySelectorAll('.bg-slide');
+    let currentSlide = 0;
+
+    if (bgSlides.length > 0) {
+        setInterval(() => {
+            bgSlides[currentSlide].classList.remove('active');
+            currentSlide = (currentSlide + 1) % bgSlides.length;
+            bgSlides[currentSlide].classList.add('active');
+        }, 8000);
+    }
 });
