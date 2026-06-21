@@ -62,7 +62,7 @@ def log_step(stage: int, stage_name: str, status: str, details: dict):
     }
     print(f"JSON_LOG: {json.dumps(log_record)}")
 
-def run_pipeline(image_path: str, user_profile: dict = None, api_key: str = None) -> dict:
+def run_pipeline(image_path: str, user_profile: dict = None, api_key: str = None, daily_totals: dict = None) -> dict:
     """
     Orchestrates the entire 11-stage NutriScan pipeline.
     """
@@ -206,6 +206,7 @@ def run_pipeline(image_path: str, user_profile: dict = None, api_key: str = None
     score_res = scorer.get_final_score(
         nutrition_data=nutrition_data,
         user_profile=user_profile or {},
+        daily_totals=daily_totals,
     )
     log_step(10, "HEALTH SCORE ENGINE", "success", {
         "health_score":  score_res["health_score"],

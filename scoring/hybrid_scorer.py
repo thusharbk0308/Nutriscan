@@ -102,6 +102,7 @@ class NutriScorer:
         nutrition_data: dict,
         features: dict = None,
         user_profile: dict = None,
+        daily_totals: dict = None,
     ) -> dict:
         """
         Compute final blended health score.
@@ -153,7 +154,33 @@ class NutriScorer:
             blended = float(np.clip(blended, 0.0, 1.0))
             final_score_100 = int(round(blended * 100))
 
-        insights = rule_result.get("insights", [])
+        insights = list(rule_result.get("insights", []))
+
+        # --- Apply daily limit penalties and warnings if daily totals provided ---
+        if daily_totals:
+            blended, daily_insights = _apply_daily_limit_penalties(
+                blended, nutrition_data, user_profile or {}, daily_totals
+            )
+            blended = float(np.clip(blended, 0.0, 1.0))
+            final_score_100 = int(round(blended * 100))
+            insights.extend(daily_insights)
+
+            # Re-evaluate rating and risk level based on the updated score
+            if final_score_100 >= 80:
+                rating = "Excellent"
+            elif final_score_100 >= 60:
+                rating = "Good"
+            elif final_score_100 >= 40:
+                rating = "Moderate"
+            else:
+                rating = "Poor"
+
+            if rating in ("Excellent", "Good"):
+                risk_level = "Low"
+            elif rating == "Moderate":
+                risk_level = "Moderate"
+            else:
+                risk_level = "High"
 
         return {
             "final_health_score": blended,
@@ -167,8 +194,9 @@ class NutriScorer:
                 "ml_used":    ml_used,
                 "blended":    round(blended, 4),
             },
-            "flags": [{"type": "info", "message": ins} for ins in insights],
+            "flags": [{"type": "risk" if ins.startswith("⚠️") else "info", "message": ins} for ins in insights],
         }
+
 
 
 # ---------------------------------------------------------------------------
@@ -232,3 +260,71 @@ def _apply_personalization(
         penalty += 0.05
 
     return base_score - penalty
+
+def _apply_daily_limit_penalties(
+    base_score: float,
+    nutrition_data: dict,
+    user_profile: dict,
+    daily_totals: dict,
+) -> tuple[float, list[str]]:
+    """
+    Adjusts the score and generates dynamic warnings if the user's daily consumption
+    exceeds or approaches their profile-based limits.
+    """
+    limits = {
+        "energy_kcal": 2000.0,
+        "sugars_g": 50.0,
+        "sodium_mg": 2000.0,
+        "saturated_fat_g": 20.0,
+    }
+    # Customize limits based on health conditions
+    if user_profile.get("is_diabetic"):
+        limits["sugars_g"] = 25.0
+    if user_profile.get("has_high_bp") or user_profile.get("heart_condition"):
+        limits["sodium_mg"] = 1500.0
+    if user_profile.get("heart_condition"):
+        limits["saturated_fat_g"] = 13.0
+    if user_profile.get("weight_loss_goal"):
+        limits["energy_kcal"] = 1600.0
+
+    penalty = 0.0
+    insights = []
+
+    nutrient_labels = {
+        "energy_kcal": ("Calories", "kcal"),
+        "sugars_g": ("Sugar", "g"),
+        "sodium_mg": ("Sodium", "mg"),
+        "saturated_fat_g": ("Saturated Fat", "g")
+    }
+
+    for key, (label, unit) in nutrient_labels.items():
+        val_new = nutrition_data.get(key)
+        if val_new is None or val_new <= 0:
+            continue
+        
+        current_today = daily_totals.get(key, 0.0) or 0.0
+        limit = limits[key]
+        future_total = current_today + val_new
+
+        if current_today >= limit:
+            # Already exceeded limit
+            penalty += 0.15
+            insights.append(
+                f"⚠️ Limit Exceeded: You have already eaten {current_today:.0f}{unit} of {label} today, exceeding your daily limit of {limit:.0f}{unit}. Consuming this is highly discouraged."
+            )
+        elif future_total > limit:
+            # Consuming this will exceed limit
+            penalty += 0.10
+            insights.append(
+                f"⚠️ Budget Exceeded: Eating this will push your daily {label} to {future_total:.0f}{unit}, exceeding your limit of {limit:.0f}{unit}."
+            )
+        elif future_total > 0.8 * limit:
+            # Consuming this will approach limit (above 80%)
+            penalty += 0.05
+            pct = (future_total / limit) * 100
+            insights.append(
+                f"⚠️ High Intake: Consuming this will bring you close to your daily {label} limit ({pct:.0f}% of limit used)."
+            )
+
+    return base_score - penalty, insights
+

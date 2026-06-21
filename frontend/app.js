@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const resetBtn = document.getElementById('reset-btn');
     
     let currentFile = null;
+    let lastAnalyzedNutrients = null;
+    let lastAnalyzedProductName = "";
 
     // =====================================================================
     // Firebase Google Sign-In
@@ -229,6 +231,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         loginOverlay.classList.remove('active');
                         mainApp.style.display = 'block';
                         addLog(`AUTO_RESTORED_SESSION: ${name}`, 'success');
+                        fetchDailyIntake();
                     }
                 } catch (e) {
                     // Server not reachable — stay on login screen
@@ -435,6 +438,16 @@ document.addEventListener('DOMContentLoaded', () => {
             
             if (data.status === 'success') {
                 addLog('Nutrition facts extracted successfully!', 'success');
+                lastAnalyzedNutrients = data.nutrition_data;
+                lastAnalyzedProductName = currentFile ? currentFile.name.replace(/\.[^/.]+$/, "") : "Scanned Product";
+                
+                // Reset log consumption button text
+                const btnLogConsumption = document.getElementById('log-consumption-btn');
+                if (btnLogConsumption) {
+                    btnLogConsumption.textContent = 'Log Consumption';
+                    btnLogConsumption.disabled = false;
+                }
+
                 setTimeout(() => {
                     scanEffect.classList.add('hidden');
                     radarEffect.classList.add('hidden');
@@ -603,6 +616,193 @@ document.addEventListener('DOMContentLoaded', () => {
         btnTabDiagnostics.disabled = true;
         switchTab('tab-scan');
         addLog('Ready for next label.', 'cmd');
+    });
+
+    // =====================================================================
+    // Log Consumption & Log Book logic
+    // =====================================================================
+    const btnLogConsumption = document.getElementById('log-consumption-btn');
+    
+    if (btnLogConsumption) {
+        btnLogConsumption.addEventListener('click', async () => {
+            if (!currentUser || !lastAnalyzedNutrients) return;
+            
+            btnLogConsumption.textContent = 'LOGGING...';
+            btnLogConsumption.disabled = true;
+            
+            const payload = {
+                email: currentUser.email,
+                product_name: lastAnalyzedProductName,
+                energy_kcal: lastAnalyzedNutrients.energy_kcal || 0.0,
+                sugars_g: lastAnalyzedNutrients.sugars_g || 0.0,
+                sodium_mg: lastAnalyzedNutrients.sodium_mg || 0.0,
+                saturated_fat_g: lastAnalyzedNutrients.saturated_fat_g || 0.0,
+                protein_g: lastAnalyzedNutrients.protein_g || 0.0,
+                carbohydrates_g: lastAnalyzedNutrients.carbohydrates_g || 0.0,
+                fat_g: lastAnalyzedNutrients.fat_g || 0.0
+            };
+            
+            try {
+                const response = await fetch('/intake/log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.status === 'success') {
+                    btnLogConsumption.textContent = 'LOGGED!';
+                    addLog(`Logged consumption of ${lastAnalyzedProductName}.`, 'success');
+                    
+                    // Refresh Log Book values
+                    await fetchDailyIntake();
+                    
+                    // Switch to Log Book tab after a short delay
+                    setTimeout(() => {
+                        switchTab('tab-intake');
+                    }, 800);
+                } else {
+                    btnLogConsumption.textContent = 'FAILED TO LOG';
+                }
+            } catch (e) {
+                btnLogConsumption.textContent = 'CONNECTION ERROR';
+                console.error(e);
+            }
+            
+            setTimeout(() => {
+                btnLogConsumption.textContent = 'Log Consumption';
+                btnLogConsumption.disabled = false;
+            }, 2500);
+        });
+    }
+
+    async function fetchDailyIntake() {
+        if (!currentUser) return;
+        
+        try {
+            const response = await fetch(`/intake/daily?email=${encodeURIComponent(currentUser.email)}`);
+            const data = await response.json();
+            
+            if (data.status === 'success') {
+                // Update Progress bars & values
+                const nutrients = [
+                    { id: 'calories', key: 'energy_kcal', unit: 'kcal' },
+                    { id: 'sugar', key: 'sugars_g', unit: 'g' },
+                    { id: 'sodium', key: 'sodium_mg', unit: 'mg' },
+                    { id: 'satfat', key: 'saturated_fat_g', unit: 'g' }
+                ];
+                
+                nutrients.forEach(n => {
+                    const consumed = data.totals[n.key] || 0.0;
+                    const limit = data.limits[n.key];
+                    const pct = data.percentages[n.key] || 0.0;
+                    
+                    const valEl = document.getElementById(`intake-val-${n.id}`);
+                    const barEl = document.getElementById(`intake-bar-${n.id}`);
+                    
+                    if (valEl && barEl) {
+                        valEl.textContent = `${consumed.toFixed(1)} / ${limit.toFixed(0)} ${n.unit} (${pct.toFixed(0)}%)`;
+                        barEl.style.width = `${pct}%`;
+                        
+                        // Set colors depending on warning threshold
+                        barEl.className = 'progress-bar'; // reset
+                        if (pct >= 100) {
+                            barEl.classList.add('danger');
+                        } else if (pct >= 80) {
+                            barEl.classList.add('warning');
+                        }
+                    }
+                });
+                
+                // Render dietitian recommendations
+                const suggestionsEl = document.getElementById('intake-suggestions');
+                if (suggestionsEl) {
+                    suggestionsEl.innerHTML = '';
+                    if (data.suggestions && data.suggestions.length > 0) {
+                        const ul = document.createElement('ul');
+                        data.suggestions.forEach(sug => {
+                            const li = document.createElement('li');
+                            li.textContent = sug;
+                            ul.appendChild(li);
+                        });
+                        suggestionsEl.appendChild(ul);
+                    }
+                }
+                
+                // Render consumed foods list
+                const listEl = document.getElementById('intake-list');
+                const emptyEl = document.getElementById('intake-list-empty');
+                
+                if (listEl && emptyEl) {
+                    listEl.innerHTML = '';
+                    if (data.items && data.items.length > 0) {
+                        emptyEl.classList.add('hidden');
+                        data.items.forEach(item => {
+                            const li = document.createElement('li');
+                            li.className = 'intake-item-row';
+                            
+                            let timeDisplay = "";
+                            if (item.timestamp) {
+                                try {
+                                    const dateObj = new Date(item.timestamp);
+                                    timeDisplay = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                } catch(err) {
+                                    timeDisplay = item.timestamp;
+                                }
+                            }
+                            
+                            li.innerHTML = `
+                                <div class="intake-item-info">
+                                    <span class="intake-item-name">${item.product_name}</span>
+                                    <span class="intake-item-meta">${timeDisplay} • ${item.energy_kcal.toFixed(0)} kcal • Sugar: ${item.sugars_g.toFixed(1)}g • Sodium: ${item.sodium_mg.toFixed(0)}mg</span>
+                                </div>
+                                <button class="intake-delete-btn" data-id="${item.id}" title="Remove entry">🗑️</button>
+                            `;
+                            
+                            const deleteBtn = li.querySelector('.intake-delete-btn');
+                            deleteBtn.addEventListener('click', async () => {
+                                const itemId = deleteBtn.dataset.id;
+                                if (confirm(`Are you sure you want to remove "${item.product_name}" from your intake log?`)) {
+                                    try {
+                                        const delResponse = await fetch(`/intake/delete/${itemId}?email=${encodeURIComponent(currentUser.email)}`, {
+                                            method: 'DELETE'
+                                        });
+                                        const delData = await delResponse.json();
+                                        if (delData.status === 'success') {
+                                            addLog(`Removed "${item.product_name}" from Log Book.`, 'success');
+                                            fetchDailyIntake();
+                                        }
+                                    } catch(err) {
+                                        console.error('Failed to delete item:', err);
+                                    }
+                                }
+                            });
+                            
+                            listEl.appendChild(li);
+                        });
+                    } else {
+                        emptyEl.classList.remove('hidden');
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch daily intake:', e);
+        }
+    }
+
+    // Call fetchDailyIntake if switching tab directly to Log Book
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (btn.dataset.target === 'tab-intake') {
+                fetchDailyIntake();
+            }
+        });
+    });
+
+    // Save profile also triggers limits update
+    btnSaveProfile.addEventListener('click', () => {
+        setTimeout(() => {
+            fetchDailyIntake();
+        }, 1000);
     });
 
     // =====================================================================

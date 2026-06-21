@@ -67,6 +67,7 @@
                 <button class="tab-btn active" data-target="tab-scan">Scan Food Label</button>
                 <button class="tab-btn" data-target="tab-diagnostics" id="btn-tab-diagnostics" disabled>Analysis Report</button>
                 <button class="tab-btn" data-target="tab-profile">My Diet Profile</button>
+                <button class="tab-btn" data-target="tab-intake" id="btn-tab-intake">Log Book</button>
             </nav>
 
             <div class="user-header-info">
@@ -168,8 +169,10 @@
                                     <!-- Rows dynamically added by app.js -->
                                 </tbody>
                             </table>
-                            <button id="reset-btn" class="primary-btn secondary-btn"
-                                style="margin-top: 2rem;">Scan Another Product</button>
+                            <div style="display: flex; gap: 1rem; margin-top: 2rem; flex-wrap: wrap;">
+                                <button id="log-consumption-btn" class="primary-btn" style="flex: 1; min-width: 180px;">Log Consumption</button>
+                                <button id="reset-btn" class="primary-btn secondary-btn" style="flex: 1; min-width: 180px; margin-top: 0;">Scan Another Product</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -249,6 +252,82 @@
                     <div style="margin-top: 2rem; display: flex; justify-content: flex-end; gap: 1rem; align-items: center;">
                         <span id="save-status" style="font-size: 0.95rem; font-weight: 600; color: var(--success); opacity: 0; transition: opacity 0.3s;"></span>
                         <button id="btn-save-profile" class="primary-btn" style="width: auto;">Save Diet Profile</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TAB 4: LOG BOOK -->
+            <section id="tab-intake" class="tab-pane">
+                <div class="card glass-card" style="max-width: 800px; margin: 0 auto;">
+                    <h3 style="font-family: var(--font-heading); font-size: 1.4rem; color: var(--primary); margin-bottom: 0.5rem;">Daily Log Book</h3>
+                    <p style="color: var(--text-muted); margin-bottom: 2rem; font-size: 1rem;">
+                        Track your daily nutritional intake. See how much of your daily allowance you have consumed today.
+                    </p>
+
+                    <!-- Daily Progress Grid -->
+                    <div class="log-progress-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1.5rem; margin-bottom: 2.5rem;">
+                        <!-- Calories Card -->
+                        <div class="progress-card">
+                            <div class="progress-info">
+                                <span class="progress-label">Calories</span>
+                                <span class="progress-value" id="intake-val-calories">0 / 0 kcal</span>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="intake-bar-calories" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Sugar Card -->
+                        <div class="progress-card">
+                            <div class="progress-info">
+                                <span class="progress-label">Sugar</span>
+                                <span class="progress-value" id="intake-val-sugar">0 / 0 g</span>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="intake-bar-sugar" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Sodium Card -->
+                        <div class="progress-card">
+                            <div class="progress-info">
+                                <span class="progress-label">Sodium</span>
+                                <span class="progress-value" id="intake-val-sodium">0 / 0 mg</span>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="intake-bar-sodium" style="width: 0%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Saturated Fat Card -->
+                        <div class="progress-card">
+                            <div class="progress-info">
+                                <span class="progress-label">Sat. Fat</span>
+                                <span class="progress-value" id="intake-val-satfat">0 / 0 g</span>
+                            </div>
+                            <div class="progress-bar-container">
+                                <div class="progress-bar" id="intake-bar-satfat" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Suggestions / What to Avoid -->
+                    <div class="suggestions-box" style="background-color: var(--bg-app); border-radius: 12px; padding: 1.5rem; border-left: 5px solid var(--accent); margin-bottom: 2.5rem;">
+                        <h4 style="font-family: var(--font-heading); margin-top: 0; color: var(--text-main); font-size: 1.1rem; margin-bottom: 0.75rem;">📋 Dietitian Recommendations</h4>
+                        <div id="intake-suggestions" style="font-size: 0.95rem; color: var(--text-muted); line-height: 1.6;">
+                            <!-- Dynamically loaded suggestions -->
+                        </div>
+                    </div>
+
+                    <!-- Consumed Items List -->
+                    <div>
+                        <h4 style="font-family: var(--font-heading); font-size: 1.2rem; color: var(--text-main); margin-bottom: 1rem;">Consumed Foods Today</h4>
+                        <div id="intake-list-empty" class="text-center" style="padding: 2rem; color: var(--text-muted); font-weight: 500;">
+                            No items logged today. Scan products and log them to see your progress!
+                        </div>
+                        <ul id="intake-list" class="intake-list-items" style="list-style: none; padding: 0; margin: 0;">
+                            <!-- Logged items added dynamically -->
+                        </ul>
                     </div>
                 </div>
             </section>
