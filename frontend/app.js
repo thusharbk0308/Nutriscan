@@ -261,7 +261,7 @@ document.addEventListener('DOMContentLoaded', () => {
         resultsDiv.classList.add('hidden');
         analyzeBtn.classList.add('hidden');
         btnTabDiagnostics.disabled = true;
-        terminal.innerHTML = '<div class="terminal-line cmd">READY FOR INPUT...</div>';
+        terminal.innerHTML = '<div class="terminal-line cmd">Ready to analyze food labels.</div>';
     });
 
     // =====================================================================
@@ -350,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function addLog(msg, type = '') {
         const line = document.createElement('div');
         line.className = `terminal-line ${type}`;
-        line.textContent = `> [${new Date().toLocaleTimeString()}] `;
+        line.textContent = ``;
         terminal.appendChild(line);
         typeWriter(line, msg);
     }
@@ -362,16 +362,16 @@ document.addEventListener('DOMContentLoaded', () => {
     dropZone.addEventListener('dragover', (e) => {
         e.preventDefault();
         dropZone.style.borderColor = 'var(--primary)';
-        dropZone.style.background = 'rgba(0, 242, 255, 0.08)';
+        dropZone.style.background = 'var(--primary-light)';
     });
     dropZone.addEventListener('dragleave', () => {
-        dropZone.style.borderColor = 'rgba(0, 242, 255, 0.3)';
-        dropZone.style.background = 'rgba(0, 242, 255, 0.02)';
+        dropZone.style.borderColor = 'var(--accent)';
+        dropZone.style.background = 'var(--primary-light)';
     });
     dropZone.addEventListener('drop', (e) => {
         e.preventDefault();
-        dropZone.style.borderColor = 'rgba(0, 242, 255, 0.3)';
-        dropZone.style.background = 'rgba(0, 242, 255, 0.02)';
+        dropZone.style.borderColor = 'var(--accent)';
+        dropZone.style.background = 'var(--primary-light)';
         if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
     });
     fileInput.addEventListener('change', (e) => {
@@ -380,7 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function handleFile(file) {
         if (!file.type.startsWith('image/')) {
-            addLog('ERROR: INVALID_FILE_FORMAT', 'warn');
+            addLog('Please select a valid image file (JPG, PNG or WEBP).', 'warn');
             return;
         }
         currentFile = file;
@@ -390,7 +390,7 @@ document.addEventListener('DOMContentLoaded', () => {
             imagePreview.classList.remove('hidden');
             uploadContent.classList.add('hidden');
             analyzeBtn.classList.remove('hidden');
-            addLog(`FILE_LOADED: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'success');
+            addLog(`Uploaded: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, 'success');
         };
         reader.readAsDataURL(file);
     }
@@ -404,7 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
         analyzeBtn.classList.add('hidden');
         scanEffect.classList.remove('hidden');
         radarEffect.classList.remove('hidden');
-        addLog('INITIALIZING_NEURAL_SCAN_SEQUENCE...', 'cmd');
+        addLog('Analyzing label image...', 'cmd');
         
         const formData = new FormData();
         formData.append('file', currentFile);
@@ -412,19 +412,19 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Show which profile conditions are active
         const activeConditions = [];
-        if (currentUser.is_diabetic) activeConditions.push('DIABETIC');
-        if (currentUser.has_high_bp) activeConditions.push('HYPERTENSION');
-        if (currentUser.heart_condition) activeConditions.push('HEART');
-        if (currentUser.weight_loss_goal) activeConditions.push('WEIGHT_LOSS');
-        if (currentUser.is_vegan) activeConditions.push('VEGAN');
+        if (currentUser.is_diabetic) activeConditions.push('Diabetic');
+        if (currentUser.has_high_bp) activeConditions.push('Hypertension');
+        if (currentUser.heart_condition) activeConditions.push('Heart-Healthy');
+        if (currentUser.weight_loss_goal) activeConditions.push('Weight Management');
+        if (currentUser.is_vegan) activeConditions.push('Vegan');
 
-        setTimeout(() => addLog('FETCHING_USER_HEALTH_PROFILE_DB...', 'cmd'), 500);
+        setTimeout(() => addLog('Retrieving your health profile...', 'cmd'), 500);
         if (activeConditions.length > 0) {
-            setTimeout(() => addLog(`ACTIVE_PROFILE_CONDITIONS: [${activeConditions.join(', ')}]`, 'warn'), 1000);
+            setTimeout(() => addLog(`Applying rules for: ${activeConditions.join(', ')}`, 'warn'), 1000);
         } else {
-            setTimeout(() => addLog('NO_ACTIVE_HEALTH_CONDITIONS. DEFAULT_SCORING.', 'cmd'), 1000);
+            setTimeout(() => addLog('Applying default nutritional guidelines.', 'cmd'), 1000);
         }
-        setTimeout(() => addLog('EXECUTING_OCR_EXTRACTION_LAYER...', 'cmd'), 1500);
+        setTimeout(() => addLog('Reading text from food label...', 'cmd'), 1500);
         
         try {
             const response = await fetch('/analyze', {
@@ -434,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             
             if (data.status === 'success') {
-                addLog('DATA_STREAM_CAPTURED_SUCCESSFULLY', 'success');
+                addLog('Nutrition facts extracted successfully!', 'success');
                 setTimeout(() => {
                     scanEffect.classList.add('hidden');
                     radarEffect.classList.add('hidden');
@@ -443,13 +443,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     displayResults(data, activeConditions);
                 }, 1500);
             } else {
-                addLog('CRITICAL_FAILURE: ' + (data.message || 'UNKNOWN_ERROR'), 'warn');
+                addLog('Analysis failed: ' + (data.message || 'Unknown error'), 'warn');
                 scanEffect.classList.add('hidden');
                 radarEffect.classList.add('hidden');
                 analyzeBtn.classList.remove('hidden');
             }
         } catch (error) {
-            addLog('CONNECTION_TERMINATED: SERVER_UNREACHABLE', 'warn');
+            addLog('Connection lost. Please make sure the backend server is running.', 'warn');
             scanEffect.classList.add('hidden');
             radarEffect.classList.add('hidden');
             analyzeBtn.classList.remove('hidden');
@@ -470,31 +470,35 @@ document.addEventListener('DOMContentLoaded', () => {
         scoreValue.textContent = score;
         
         const scoreCircle = document.getElementById('score-circle');
-        let color = '#00f2ff';
-        if (finalResult.risk_level === 'Moderate') color = '#ffcc00';
-        if (finalResult.risk_level === 'High') color = '#ff4d4d';
+        let color = '#2e7d32'; // Healthy Green
+        let textVerdict = 'Healthy';
+        if (finalResult.risk_level === 'Moderate') {
+            color = '#f57c00'; // Orange
+            textVerdict = 'Moderate';
+        } else if (finalResult.risk_level === 'High') {
+            color = '#c62828'; // Red
+            textVerdict = 'Unhealthy';
+        }
         
-        scoreCircle.style.background = `conic-gradient(${color} ${score}%, rgba(255,255,255,0.05) 0%)`;
+        scoreCircle.style.background = `conic-gradient(${color} ${score}%, #e0e0e0 0%)`;
         scoreValue.style.color = color;
-        scoreCircle.style.boxShadow = `0 0 30px ${color}40`;
 
         const riskBadge = document.getElementById('risk-badge');
-        riskBadge.textContent = `${finalResult.risk_level.toUpperCase()}_RISK`;
-        riskBadge.style.backgroundColor = color + '22';
+        riskBadge.textContent = textVerdict;
+        riskBadge.style.backgroundColor = color + '15';
         riskBadge.style.color = color;
-        riskBadge.style.border = `1px solid ${color}`;
-        riskBadge.style.padding = '6px 14px';
-        riskBadge.style.borderRadius = '6px';
-        riskBadge.style.fontFamily = 'var(--font-mono)';
-        riskBadge.style.fontSize = '0.8rem';
+        riskBadge.style.border = `2px solid ${color}`;
+        riskBadge.style.padding = '6px 16px';
+        riskBadge.style.borderRadius = '20px';
+        riskBadge.style.fontSize = '0.9rem';
         riskBadge.style.fontWeight = 'bold';
-        riskBadge.style.boxShadow = `0 0 10px ${color}30`;
+        riskBadge.style.boxShadow = 'none';
 
         const summary = document.getElementById('ai-verdict-summary');
         if (activeConditions.length > 0) {
-            summary.textContent = `Score adjusted for ${currentUser.name}'s health profile: [${activeConditions.join(', ')}]. ${finalResult.risk_level} risk level.`;
+            summary.textContent = `Based on your diet settings (${activeConditions.join(', ')}), this product is rated ${textVerdict.toLowerCase()} for your consumption with a health score of ${score}/100.`;
         } else {
-            summary.textContent = `Standard analysis for ${currentUser.name}. ${finalResult.risk_level} risk level.`;
+            summary.textContent = `Standard nutritional evaluation: This product is rated ${textVerdict.toLowerCase()} with a health score of ${score}/100.`;
         }
 
         // Show personalization badges if any conditions are active
@@ -505,46 +509,59 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeConditions.length > 0) {
             badgesDiv.classList.remove('hidden');
             const conditionLabels = {
-                'DIABETIC': { icon: '🩸', desc: 'Sugar penalties applied' },
-                'HYPERTENSION': { icon: '💉', desc: 'Sodium penalties applied' },
-                'HEART': { icon: '❤️', desc: 'Sat fat + cholesterol penalties' },
-                'WEIGHT_LOSS': { icon: '⚖️', desc: 'Caloric density penalties' },
-                'VEGAN': { icon: '🌿', desc: 'Cholesterol flagged' }
+                'Diabetic': { icon: '🩸', desc: 'Strict Sugar & Carb Limit' },
+                'Hypertension': { icon: '💉', desc: 'Strict Sodium Limit' },
+                'Heart-Healthy': { icon: '❤️', desc: 'Low Saturated Fat & Cholesterol' },
+                'Weight Management': { icon: '⚖️', desc: 'Favors low calorie density' },
+                'Vegan': { icon: '🌿', desc: 'Animal product checks' }
             };
             activeConditions.forEach(cond => {
                 const info = conditionLabels[cond] || { icon: '⚙️', desc: cond };
                 const badge = document.createElement('div');
                 badge.className = 'condition-badge';
-                badge.innerHTML = `<span>${info.icon}</span> <span class="mono">${cond}</span> <small>${info.desc}</small>`;
+                badge.innerHTML = `<span>${info.icon}</span> <span>${cond}</span> <small>${info.desc}</small>`;
                 conditionsDiv.appendChild(badge);
             });
         } else {
             badgesDiv.classList.add('hidden');
         }
 
-        // Nutrient table
+        // Nutrient table with fully human friendly mappings
         const nutrientList = document.getElementById('nutrient-list');
         nutrientList.innerHTML = '';
 
+        const nutrientFriendlyNames = {
+            'energy_kcal': 'Energy / Calories',
+            'protein_g': 'Protein',
+            'fat_g': 'Total Fat',
+            'saturated_fat_g': 'Saturated Fat',
+            'trans_fat_g': 'Trans Fat',
+            'cholesterol_mg': 'Cholesterol',
+            'sodium_mg': 'Sodium',
+            'carbohydrates_g': 'Total Carbohydrates',
+            'sugar_g': 'Total Sugars',
+            'fiber_g': 'Dietary Fiber'
+        };
+
         for (const [key, val] of Object.entries(data.raw_nutrition)) {
             const tr = document.createElement('tr');
-            const formattedKey = key.toUpperCase().replace(/_/g, '_');
-            const formattedVal = val.value + (val.unit ? val.unit : '');
+            const formattedKey = nutrientFriendlyNames[key] || key.toUpperCase().replace(/_/g, ' ');
+            const formattedVal = val.value + (val.unit ? ' ' + val.unit : '');
             
-            let limitDisplay = 'N/A';
+            let limitDisplay = 'No Limit';
             if (val.who_limit) {
-                const unit = (key === 'sodium' || key === 'cholesterol') ? 'mg' : 'g';
+                const unit = (key === 'sodium' || key === 'cholesterol') ? ' mg' : ' g';
                 limitDisplay = val.who_limit + unit;
             }
             
-            let valColor = 'var(--primary)';
+            let valColor = 'var(--text-main)';
             if (val.percent_daily > 20) valColor = 'var(--danger)';
             else if (val.percent_daily > 10) valColor = 'var(--warning)';
 
             tr.innerHTML = `
                 <td class="nutrient-name">${formattedKey}</td>
                 <td class="nutrient-val" style="color: ${valColor}">${formattedVal}</td>
-                <td class="nutrient-val" style="color: var(--text-muted); font-size: 0.75rem;">${limitDisplay}</td>
+                <td class="nutrient-val" style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">${limitDisplay}</td>
             `;
             nutrientList.appendChild(tr);
         }
@@ -557,18 +574,19 @@ document.addEventListener('DOMContentLoaded', () => {
             finalResult.flags.forEach(flag => {
                 const div = document.createElement('div');
                 div.className = `insight-item ${flag.type === 'risk' ? 'risk' : ''}`;
-                const icon = flag.type === 'risk' ? '&#9888;' : '&#8505;';
+                const icon = flag.type === 'risk' ? '⚠️' : 'ℹ️';
+                const typeText = flag.type === 'risk' ? 'Health Warning' : 'Nutritional Info';
                 div.innerHTML = `
                     <div class="insight-title">
                         <span>${icon}</span>
-                        <span>${flag.type.toUpperCase()}_FLAG</span>
+                        <span>${typeText}</span>
                     </div>
-                    <div style="font-size: 0.85rem; color: var(--text-main); line-height: 1.4;">${flag.message}</div>
+                    <div style="font-size: 1rem; color: var(--text-main); line-height: 1.5; font-weight: 500;">${flag.message}</div>
                 `;
                 insightContainer.appendChild(div);
             });
         } else {
-            insightContainer.innerHTML = '<div class="insight-item"><div class="insight-title"><span>&#10003;</span> NO_RISKS_DETECTED</div><div style="font-size: 0.85rem; color: var(--text-main)">Neural profile analysis clear.</div></div>';
+            insightContainer.innerHTML = '<div class="insight-item"><div class="insight-title"><span>✅</span> Product Checked</div><div style="font-size: 1rem; color: var(--text-main); font-weight: 500;">No risk factors or allergen matches detected. Suitable for your dietary profile.</div></div>';
         }
     }
 
@@ -584,7 +602,7 @@ document.addEventListener('DOMContentLoaded', () => {
         analyzeBtn.classList.add('hidden');
         btnTabDiagnostics.disabled = true;
         switchTab('tab-scan');
-        addLog('SESSION_RESET. READY_FOR_NEW_STREAM.', 'cmd');
+        addLog('Ready for next label.', 'cmd');
     });
 
     // =====================================================================
