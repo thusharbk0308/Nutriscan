@@ -959,3 +959,42 @@ input:checked + .slider:before {
     margin-bottom: 0.5rem;
 }
 
+/* Dark Mode Overrides */
+[data-theme="dark"] {
+    --bg-app: #121412;
+    --primary: #4caf50;
+    --primary-light: #1b2e1e;
+    --secondary: #ff9800;
+    --secondary-light: #2d1c0a;
+    --text-main: #e8f5e9;
+    --text-muted: #a3b8a6;
+    --card-bg: #1e241e;
+    --card-border: #2d382e;
+}
+
+[data-theme="dark"] .glass-panel,
+[data-theme="dark"] .glass-card,
+[data-theme="dark"] .login-card {
+    box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+}
+
+[data-theme="dark"] .secondary-btn {
+    background: transparent;
+    color: var(--primary);
+}
+
+[data-theme="dark"] .google-signin-btn {
+    background: transparent;
+}
+
+[data-theme="dark"] .score-inner {
+    background: var(--card-bg);
+}
+
+[data-theme="dark"] .insight-item {
+    background: #19271a;
+}
+
+[data-theme="dark"] .insight-item.risk {
+    background: #3b1919;
+}

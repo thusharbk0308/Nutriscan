@@ -106,6 +106,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     addLog('NEW_USER_DETECTED. CONFIGURE_HEALTH_PROFILE.', 'warn');
                 } else {
                     // Populate existing profile toggles from DB
+                    if (currentUser.age) document.getElementById('user_age').value = currentUser.age;
                     document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
                     document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
                     document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
@@ -170,6 +171,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         addLog('DEV_BYPASS_INIT. CONFIGURE_HEALTH_PROFILE.', 'warn');
                     } else {
                         // Populate existing profile toggles
+                        if (currentUser.age) document.getElementById('user_age').value = currentUser.age;
                         document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
                         document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
                         document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
@@ -222,6 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         profileEmail.textContent = email;
 
                         // Populate profile toggles
+                        if (currentUser.age) document.getElementById('user_age').value = currentUser.age;
                         document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
                         document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
                         document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
@@ -278,6 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const profileData = {
             email: currentUser.email,
+            age: parseInt(document.getElementById('user_age').value) || null,
             is_diabetic: document.getElementById('is_diabetic').checked,
             has_high_bp: document.getElementById('has_high_bp').checked,
             heart_condition: document.getElementById('heart_condition').checked,
@@ -295,6 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (data.status === 'success') {
                 // Update local user state
+                currentUser.age = profileData.age;
                 currentUser.is_diabetic = profileData.is_diabetic;
                 currentUser.has_high_bp = profileData.has_high_bp;
                 currentUser.heart_condition = profileData.heart_condition;
@@ -818,4 +823,188 @@ document.addEventListener('DOMContentLoaded', () => {
             bgSlides[currentSlide].classList.add('active');
         }, 8000);
     }
+
+    // =====================================================================
+    // Dark Mode Toggle
+    // =====================================================================
+    const themeToggle = document.getElementById('theme-toggle');
+    if (themeToggle) {
+        // Load saved theme
+        const savedTheme = localStorage.getItem('nutriscan-theme') || 'light';
+        if (savedTheme === 'dark') {
+            document.body.setAttribute('data-theme', 'dark');
+            themeToggle.textContent = '☀️';
+        }
+
+        themeToggle.addEventListener('click', () => {
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            if (isDark) {
+                document.body.removeAttribute('data-theme');
+                themeToggle.textContent = '🌙';
+                localStorage.setItem('nutriscan-theme', 'light');
+            } else {
+                document.body.setAttribute('data-theme', 'dark');
+                themeToggle.textContent = '☀️';
+                localStorage.setItem('nutriscan-theme', 'dark');
+            }
+            if (macroChartInst) updateChartTheme();
+        });
+    }
+
+    // =====================================================================
+    // Export PDF
+    // =====================================================================
+    const btnDownloadPdf = document.getElementById('download-pdf-btn');
+    if (btnDownloadPdf) {
+        btnDownloadPdf.addEventListener('click', () => {
+                console.log('Export PDF button clicked');
+            try {
+                const element = document.getElementById('results');
+                // Ensure the results section is visible for PDF capture
+                const wasHidden = element.classList.contains('hidden');
+                if (wasHidden) element.classList.remove('hidden');
+                const opt = {
+                    margin: 10,
+                    filename: 'NutriScan_Report.pdf',
+                    image: { type: 'jpeg', quality: 0.98 },
+                    html2canvas: { scale: 2, useCORS: true },
+                    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+                };
+                btnDownloadPdf.textContent = 'Exporting...';
+                html2pdf().set(opt).from(element).save().then(() => {
+                    btnDownloadPdf.textContent = 'Export PDF';
+                    // Restore hidden state if it was originally hidden
+                    if (wasHidden) element.classList.add('hidden');
+                }).catch((err) => {
+                    console.error('PDF generation failed: ', err);
+                    alert('PDF generation failed. Check console for details.');
+                    btnDownloadPdf.textContent = 'Export PDF';
+                    if (wasHidden) element.classList.add('hidden');
+                });
+            } catch (err) {
+                console.error("Error initiating PDF generation: ", err);
+                alert("Could not start PDF export. Make sure html2pdf is loaded.");
+            }
+        });
+    }
+
+    // =====================================================================
+    // Chart.js Integration
+    // =====================================================================
+    let macroChartInst = null;
+    const ctx = document.getElementById('macroChart');
+    if (ctx) {
+        macroChartInst = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Protein', 'Carbs', 'Fat'],
+                datasets: [{
+                    data: [0, 0, 0],
+                    backgroundColor: ['#2e7d32', '#f57c00', '#c62828'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: 'var(--text-main)' } }
+                }
+            }
+        });
+    }
+
+    function updateChartTheme() {
+        if (!macroChartInst) return;
+        const isDark = document.body.getAttribute('data-theme') === 'dark';
+        macroChartInst.options.plugins.legend.labels.color = isDark ? '#e8f5e9' : '#1b2e1e';
+        macroChartInst.update();
+    }
+
+    // Monkey-patch fetchDailyIntake to update the chart
+    const originalFetchDailyIntake = fetchDailyIntake;
+    fetchDailyIntake = async function() {
+        await originalFetchDailyIntake();
+        if (!currentUser) return;
+        try {
+            const response = await fetch(`/intake/daily?email=${encodeURIComponent(currentUser.email)}`);
+            const data = await response.json();
+            if (data.status === 'success' && macroChartInst) {
+                const p = data.totals['protein_g'] || 0;
+                const c = data.totals['carbohydrates_g'] || 0;
+                const f = data.totals['fat_g'] || 0;
+                macroChartInst.data.datasets[0].data = [p, c, f];
+                macroChartInst.update();
+            }
+        } catch(e) {}
+    };
+
+    // =====================================================================
+    // Barcode Scanning via OpenFoodFacts
+    // =====================================================================
+    const btnBarcode = document.getElementById('barcode-btn');
+    if (btnBarcode) {
+        btnBarcode.addEventListener('click', async () => {
+            if (!currentUser) return;
+            const barcode = prompt("Enter the product barcode (e.g., 049000028904):");
+            if (!barcode || barcode.trim() === '') return;
+
+            analyzeBtn.classList.add('hidden');
+            btnBarcode.classList.add('hidden');
+            scanEffect.classList.remove('hidden');
+            radarEffect.classList.remove('hidden');
+            addLog(`Fetching data for barcode: ${barcode}...`, 'cmd');
+
+            const activeConditions = [];
+            if (currentUser.is_diabetic) activeConditions.push('Diabetic');
+            if (currentUser.has_high_bp) activeConditions.push('Hypertension');
+            if (currentUser.heart_condition) activeConditions.push('Heart-Healthy');
+            if (currentUser.weight_loss_goal) activeConditions.push('Weight Management');
+            if (currentUser.is_vegan) activeConditions.push('Vegan');
+
+            try {
+                const response = await fetch('/analyze/barcode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ barcode: barcode, email: currentUser.email })
+                });
+                const data = await response.json();
+
+                if (data.status === 'success') {
+                    addLog('Barcode mapped to nutrition facts!', 'success');
+                    lastAnalyzedNutrients = data.nutrition_data;
+                    lastAnalyzedProductName = data.product_name || `Barcode: ${barcode}`;
+
+                    const btnLogConsumption = document.getElementById('log-consumption-btn');
+                    if (btnLogConsumption) {
+                        btnLogConsumption.textContent = 'Log Consumption';
+                        btnLogConsumption.disabled = false;
+                    }
+
+                    setTimeout(() => {
+                        scanEffect.classList.add('hidden');
+                        radarEffect.classList.add('hidden');
+                        btnTabDiagnostics.disabled = false;
+                        switchTab('tab-diagnostics');
+                        displayResults(data, activeConditions);
+                        btnBarcode.classList.remove('hidden');
+                    }, 1500);
+                } else {
+                    addLog('Barcode analysis failed: ' + (data.message || 'Product not found'), 'warn');
+                    scanEffect.classList.add('hidden');
+                    radarEffect.classList.add('hidden');
+                    analyzeBtn.classList.remove('hidden');
+                    btnBarcode.classList.remove('hidden');
+                }
+            } catch (error) {
+                addLog('Connection lost. Please make sure the backend server is running.', 'warn');
+                scanEffect.classList.add('hidden');
+                radarEffect.classList.add('hidden');
+                analyzeBtn.classList.remove('hidden');
+                btnBarcode.classList.remove('hidden');
+            }
+        });
+    }
 });
+

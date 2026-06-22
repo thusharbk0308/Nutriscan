@@ -188,10 +188,30 @@ def run_pipeline(image_path: str, user_profile: dict = None, api_key: str = None
                 "extracted_fields": nutrition_data
             })
 
-    # STAGE 9 — VALIDATION ENGINE (with semantic cross-checks & auto-correction)
+    # STAGE 9-11 extracted to function for reuse
+    result = evaluate_nutrition(nutrition_data, user_profile, daily_totals)
+    
+    # FINAL RESPONSE FORMAT
+    response = {
+        "image_id":       image_id,
+        "ocr_confidence": round(ocr_confidence, 2),
+        "nutrition_data": result["nutrition_data"],
+        "health_score":   result["score_res"]["health_score"],
+        "rating":         result["score_res"]["rating"],
+        "warnings":       result["warnings"],
+        "insights":       result["score_res"]["insights"],
+        "score_components": result["score_res"].get("components", {}),
+    }
+
+    return response
+
+def evaluate_nutrition(nutrition_data: dict, user_profile: dict = None, daily_totals: dict = None) -> dict:
+    """
+    Runs STAGE 9-11 directly from a nutrition dictionary (used for barcode scanning).
+    """
+    # STAGE 9 — VALIDATION ENGINE
     validation_res = validate_bounds(nutrition_data)
     warnings = validation_res["flags"]
-    # Use auto-corrected nutrition data for scoring
     nutrition_data = validation_res.get("data", nutrition_data)
     log_step(9, "VALIDATION ENGINE", "success", {
         "is_valid":       validation_res["is_valid"],
@@ -218,19 +238,11 @@ def run_pipeline(image_path: str, user_profile: dict = None, api_key: str = None
         "insights":       score_res["insights"],
     })
 
-    # FINAL RESPONSE FORMAT
-    response = {
-        "image_id":       image_id,
-        "ocr_confidence": round(ocr_confidence, 2),
+    return {
         "nutrition_data": nutrition_data,
-        "health_score":   score_res["health_score"],
-        "rating":         score_res["rating"],
-        "warnings":       warnings,
-        "insights":       score_res["insights"],
-        "score_components": score_res.get("components", {}),
+        "warnings": warnings,
+        "score_res": score_res
     }
-
-    return response
 
 if __name__ == "__main__":
     sample_path = "data/sample_images/nutrition_label2.jpg"

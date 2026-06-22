@@ -12,6 +12,7 @@ import numpy as np
 
 from scoring.rule_scorer import calculate_health_score
 from features.feature_engineer import calculate_features
+from parser.nutrient_parser import get_limits_for_age
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +114,7 @@ class NutriScorer:
           final_health_score, risk_level, rating, insights, components, flags
         """
         # --- Rule-based score (0–100) ---
-        rule_result = calculate_health_score(nutrition_data)
+        rule_result = calculate_health_score(nutrition_data, user_profile=user_profile)
         rule_score_01 = rule_result["health_score"] / 100.0
 
         # --- ML score (0–1) ---
@@ -271,11 +272,12 @@ def _apply_daily_limit_penalties(
     Adjusts the score and generates dynamic warnings if the user's daily consumption
     exceeds or approaches their profile-based limits.
     """
+    age_limits = get_limits_for_age(user_profile.get("age"))
     limits = {
-        "energy_kcal": 2000.0,
-        "sugars_g": 50.0,
-        "sodium_mg": 2000.0,
-        "saturated_fat_g": 20.0,
+        "energy_kcal": age_limits.get("energy_kcal", 2000.0),
+        "sugars_g": age_limits.get("sugars_g", 50.0),
+        "sodium_mg": age_limits.get("sodium_mg", 2000.0),
+        "saturated_fat_g": age_limits.get("saturated_fat_g", 20.0),
     }
     # Customize limits based on health conditions
     if user_profile.get("is_diabetic"):

@@ -12,8 +12,10 @@ from datetime import datetime, timezone
 # Import the pipeline from our main.py
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from main import run_pipeline
-from parser.nutrient_parser import DEFAULT_UNITS, WHO_LIMITS
+from main import run_pipeline, evaluate_nutrition
+from parser.nutrient_parser import DEFAULT_UNITS, WHO_LIMITS, get_limits_for_age
+import urllib.request
+import urllib.error
 from models.db import (
     init_db, get_user, create_or_update_user,
     log_intake, get_daily_intake, delete_intake_item, get_daily_totals
@@ -65,6 +67,7 @@ def login(req: LoginRequest):
 
 class ProfileUpdate(BaseModel):
     email: str
+    age: int = None
     is_diabetic: bool = False
     has_high_bp: bool = False
     heart_condition: bool = False
@@ -87,6 +90,7 @@ async def analyze_image(file: UploadFile = File(...), email: str = Form(None)):
         db_user = get_user(email)
         if db_user:
             user_profile = {
+                "age": db_user.get("age"),
                 "is_diabetic": bool(db_user.get("is_diabetic")),
                 "has_high_bp": bool(db_user.get("has_high_bp")),
                 "heart_condition": bool(db_user.get("heart_condition")),
@@ -116,7 +120,8 @@ async def analyze_image(file: UploadFile = File(...), email: str = Form(None)):
         for k, val in result["nutrition_data"].items():
             if val is not None and k != "_units":
                 unit = units_map.get(k) or DEFAULT_UNITS.get(k, "g")
-                who_limit = WHO_LIMITS.get(k)
+                age_limits = get_limits_for_age(user_profile.get("age"))
+                who_limit = age_limits.get(k)
                 pct = round((val / who_limit) * 100, 1) if who_limit else None
                 raw_nutrition_compat[k] = {
                     "value": val,
@@ -209,14 +214,15 @@ def api_get_daily(email: str):
     
     # Determine limits based on profile
     db_user = get_user(email) or {}
+    age_limits = get_limits_for_age(db_user.get("age"))
     limits = {
-        "energy_kcal": 2000.0,
-        "sugars_g": 50.0,
-        "sodium_mg": 2000.0,
-        "saturated_fat_g": 20.0,
-        "protein_g": 50.0,
-        "carbohydrates_g": 260.0,
-        "fat_g": 70.0,
+        "energy_kcal": age_limits.get("energy_kcal", 2000.0),
+        "sugars_g": age_limits.get("sugars_g", 50.0),
+        "sodium_mg": age_limits.get("sodium_mg", 2000.0),
+        "saturated_fat_g": age_limits.get("saturated_fat_g", 20.0),
+        "protein_g": age_limits.get("protein_g", 50.0),
+        "carbohydrates_g": age_limits.get("carbohydrates_g", 260.0),
+        "fat_g": age_limits.get("fat_g", 70.0),
     }
     if db_user.get("is_diabetic"):
         limits["sugars_g"] = 25.0
@@ -271,3 +277,115 @@ def api_delete_item(item_id: int, email: str):
     delete_intake_item(item_id, email)
     return {"status": "success"}
 
+class BarcodeRequest(BaseModel):
+    barcode: str
+    email: str = None
+
+@app.post("/analyze/barcode")
+def analyze_barcode(req: BarcodeRequest):
+    log_api_call("/analyze/barcode", "started", {"barcode": req.barcode})
+    
+    # 1. Fetch from OpenFoodFacts
+    url = f"https://world.openfoodfacts.org/api/v2/product/{req.barcode}.json"
+    try:
+        req_obj = urllib.request.Request(url, headers={'User-Agent': 'NutriScan/1.0'})
+        with urllib.request.urlopen(req_obj) as response:
+            data = json.loads(response.read().decode())
+    except Exception as e:
+        log_api_call("/analyze/barcode", "failed", {"error": f"Failed to fetch barcode: {e}"})
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Product not found or network error"})
+        
+    if data.get("status") != 1:
+        return JSONResponse(status_code=404, content={"status": "error", "message": "Product not found"})
+        
+    product = data.get("product", {})
+    nutriments = product.get("nutriments", {})
+    
+    # 2. Map OpenFoodFacts to NutriScan dictionary
+    nutrition_data = {
+        "energy_kcal": nutriments.get("energy-kcal_100g") or nutriments.get("energy-kcal"),
+        "protein_g": nutriments.get("proteins_100g") or nutriments.get("proteins"),
+        "fat_g": nutriments.get("fat_100g") or nutriments.get("fat"),
+        "saturated_fat_g": nutriments.get("saturated-fat_100g") or nutriments.get("saturated-fat"),
+        "carbohydrates_g": nutriments.get("carbohydrates_100g") or nutriments.get("carbohydrates"),
+        "sugars_g": nutriments.get("sugars_100g") or nutriments.get("sugars"),
+        "fiber_g": nutriments.get("fiber_100g") or nutriments.get("fiber"),
+        "sodium_mg": (nutriments.get("sodium_100g", 0) * 1000) if nutriments.get("sodium_100g") else None,
+        "cholesterol_mg": (nutriments.get("cholesterol_100g", 0) * 1000) if nutriments.get("cholesterol_100g") else None,
+        "_units": {}
+    }
+    
+    # Clean up Nones
+    nutrition_data = {k: v for k, v in nutrition_data.items() if v is not None or k == "_units"}
+
+    # Fetch profile and daily totals from DB
+    user_profile = {}
+    daily_totals = {}
+    if req.email:
+        db_user = get_user(req.email)
+        if db_user:
+            user_profile = {
+                "age": db_user.get("age"),
+                "is_diabetic": bool(db_user.get("is_diabetic")),
+                "has_high_bp": bool(db_user.get("has_high_bp")),
+                "heart_condition": bool(db_user.get("heart_condition")),
+                "weight_loss_goal": bool(db_user.get("weight_loss_goal")),
+                "is_vegan": bool(db_user.get("is_vegan"))
+            }
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        daily_totals = get_daily_totals(req.email, today_str)
+
+    try:
+        # 3. Call evaluate_nutrition directly
+        result = evaluate_nutrition(nutrition_data, user_profile=user_profile, daily_totals=daily_totals)
+        
+        # Build the backward-compatibility layer for the frontend
+        units_map = result["nutrition_data"].pop("_units", {})
+        raw_nutrition_compat = {}
+        for k, val in result["nutrition_data"].items():
+            if val is not None and k != "_units":
+                unit = units_map.get(k) or DEFAULT_UNITS.get(k, "g")
+                age_limits = get_limits_for_age(user_profile.get("age"))
+                who_limit = age_limits.get(k)
+                pct = round((val / who_limit) * 100, 1) if who_limit else None
+                raw_nutrition_compat[k] = {
+                    "value": val,
+                    "unit": unit,
+                    "who_limit": who_limit,
+                    "percent_daily": pct
+                }
+                
+        compat_flags = []
+        for ins in result["score_res"]["insights"]:
+            compat_flags.append({
+                "type": "info",
+                "message": ins
+            })
+        for warn in result["warnings"]:
+            compat_flags.append({
+                "type": "risk",
+                "message": f"Validation Warning for {warn['field']}: {warn['reason']}"
+            })
+            
+        rating = result["score_res"]["rating"]
+        compat_final_result = {
+            "final_health_score": float(result["score_res"]["health_score"]) / 100.0,
+            "risk_level": "Low" if rating in ("Excellent", "Good") else ("Moderate" if rating == "Moderate" else "High"),
+            "rating": rating,
+            "flags": compat_flags
+        }
+        
+        full_response = {
+            "status": "success",
+            "product_name": product.get("product_name", f"Barcode {req.barcode}"),
+            "nutrition_data": result["nutrition_data"],
+            "raw_nutrition": raw_nutrition_compat,
+            "final_result": compat_final_result
+        }
+        
+        log_api_call("/analyze/barcode", "success", {"health_score": result["score_res"]["health_score"]})
+        return JSONResponse(content=full_response)
+        
+    except Exception as e:
+        log_api_call("/analyze/barcode", "failed", {"error": str(e)})
+        return JSONResponse(status_code=500, content={"status": "error", "message": f"Evaluation failed: {str(e)}"})

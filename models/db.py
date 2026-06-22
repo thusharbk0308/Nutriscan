@@ -11,6 +11,7 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users (
             email TEXT PRIMARY KEY,
             name TEXT,
+            age INTEGER,
             is_diabetic BOOLEAN,
             has_high_bp BOOLEAN,
             heart_condition BOOLEAN,
@@ -18,6 +19,11 @@ def init_db():
             is_vegan BOOLEAN
         )
     """)
+    # Migration: add age column if it doesn't exist
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN age INTEGER")
+    except sqlite3.OperationalError:
+        pass
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS daily_intake (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,17 +66,18 @@ def create_or_update_user(email: str, name: str, profile_data: dict = None):
     
     if not exists:
         cursor.execute(
-            "INSERT INTO users (email, name, is_diabetic, has_high_bp, heart_condition, weight_loss_goal, is_vegan) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (email, name, False, False, False, False, False)
+            "INSERT INTO users (email, name, age, is_diabetic, has_high_bp, heart_condition, weight_loss_goal, is_vegan) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (email, name, profile_data.get('age') if profile_data else None, False, False, False, False, False)
         )
     elif profile_data is not None:
         cursor.execute(
             """
             UPDATE users 
-            SET is_diabetic = ?, has_high_bp = ?, heart_condition = ?, weight_loss_goal = ?, is_vegan = ?
+            SET age = ?, is_diabetic = ?, has_high_bp = ?, heart_condition = ?, weight_loss_goal = ?, is_vegan = ?
             WHERE email = ?
             """,
             (
+                profile_data.get('age'),
                 profile_data.get('is_diabetic', False),
                 profile_data.get('has_high_bp', False),
                 profile_data.get('heart_condition', False),

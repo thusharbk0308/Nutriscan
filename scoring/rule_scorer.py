@@ -13,6 +13,8 @@ import json
 import base64
 import requests
 
+from parser.nutrient_parser import get_limits_for_age
+
 
 # ---------------------------------------------------------------------------
 # FSA / WHO Threshold tables (all per 100g)
@@ -37,13 +39,15 @@ def _per100g(nutrition_data: dict, key: str) -> float:
     return float(val)
 
 
-def calculate_health_score(nutrition_data: dict) -> dict:
+def calculate_health_score(nutrition_data: dict, user_profile: dict = None) -> dict:
     """
     Stage 10 & 11: Calculate rule-based health score (0–100) and generate insights.
 
     Scoring uses FSA Nutrient Profiling Model-inspired thresholds (per 100g):
       - A-nutrients (penalise): energy, sugar, saturated fat, sodium, trans fat
       - C-nutrients (reward):   protein, fiber
+      
+    These thresholds are scaled proportionally to the user's age-specific daily limits.
     """
     sugar    = _per100g(nutrition_data, "sugars_g")
     added_sg = _per100g(nutrition_data, "added_sugars_g")
@@ -57,44 +61,57 @@ def calculate_health_score(nutrition_data: dict) -> dict:
     chol     = _per100g(nutrition_data, "cholesterol_mg")
 
     base_score = 70.0  # Neutral FSA-aligned starting point
+    
+    age = user_profile.get("age") if user_profile else None
+    limits = get_limits_for_age(age)
+    
+    # Scale FSA per-100g thresholds proportionally to age-specific daily limits vs standard WHO adult limits
+    r_sugar = limits.get("sugars_g", 50.0) / 50.0
+    r_added = limits.get("added_sugars_g", 50.0) / 50.0
+    r_sat   = limits.get("saturated_fat_g", 20.0) / 20.0
+    r_sod   = limits.get("sodium_mg", 2000.0) / 2000.0
+    r_trans = limits.get("trans_fat_g", 2.2) / 2.2
+    r_pro   = limits.get("protein_g", 50.0) / 50.0
+    r_fib   = limits.get("fiber_g", 25.0) / 25.0
+    r_en    = limits.get("energy_kcal", 2000.0) / 2000.0
 
     # ---- A-nutrient penalties ----
     # 1. Total sugars
-    if sugar > 22.5:
+    if sugar > 22.5 * r_sugar:
         base_score -= 22
-    elif sugar > 10.0:
+    elif sugar > 10.0 * r_sugar:
         base_score -= 10
 
     # 2. Added sugars (extra penalty on top of total sugar)
-    if added_sg > 10.0:
+    if added_sg > 10.0 * r_added:
         base_score -= 12
-    elif added_sg > 5.0:
+    elif added_sg > 5.0 * r_added:
         base_score -= 6
 
     # 3. Saturated fat
-    if sat_fat > 5.0:
+    if sat_fat > 5.0 * r_sat:
         base_score -= 15
-    elif sat_fat > 2.5:
+    elif sat_fat > 2.5 * r_sat:
         base_score -= 7
 
     # 4. Sodium
-    if sodium > 600.0:
+    if sodium > 600.0 * r_sod:
         base_score -= 18
-    elif sodium > 300.0:
+    elif sodium > 300.0 * r_sod:
         base_score -= 8
 
     # 5. Trans fat (hard penalty — any detectable amount)
-    if trans > 1.0:
+    if trans > 1.0 * r_trans:
         base_score -= 25
-    elif trans > 0.5:
+    elif trans > 0.5 * r_trans:
         base_score -= 18
-    elif trans > 0.1:
+    elif trans > 0.1 * r_trans:
         base_score -= 10
 
     # 6. High caloric density
-    if energy > 500:
+    if energy > 500 * r_en:
         base_score -= 8
-    elif energy > 350:
+    elif energy > 350 * r_en:
         base_score -= 4
 
     # 7. Cholesterol
@@ -105,19 +122,19 @@ def calculate_health_score(nutrition_data: dict) -> dict:
 
     # ---- C-nutrient bonuses ----
     # 1. Protein
-    if protein > 15.0:
+    if protein > 15.0 * r_pro:
         base_score += 15
-    elif protein > 10.0:
+    elif protein > 10.0 * r_pro:
         base_score += 10
-    elif protein > 5.0:
+    elif protein > 5.0 * r_pro:
         base_score += 5
 
     # 2. Dietary fiber
-    if fiber > 6.0:
+    if fiber > 6.0 * r_fib:
         base_score += 15
-    elif fiber > 3.0:
+    elif fiber > 3.0 * r_fib:
         base_score += 8
-    elif fiber > 1.5:
+    elif fiber > 1.5 * r_fib:
         base_score += 3
 
     # Clamp
@@ -134,12 +151,18 @@ def calculate_health_score(nutrition_data: dict) -> dict:
         rating = "Poor"
 
     # ---- Stage 11: Insight Generation ----
+    ratios = {
+        "sugar": r_sugar, "added": r_added, "sat": r_sat, 
+        "sod": r_sod, "trans": r_trans, "en": r_en, 
+        "pro": r_pro, "fib": r_fib
+    }
     insights = _generate_insights(
         score=score,
         sugar=sugar, added_sg=added_sg, sat_fat=sat_fat,
         sodium=sodium, trans=trans, protein=protein,
         fiber=fiber, carbs=carbs, energy=energy, chol=chol,
         nutrition_data=nutrition_data,
+        ratios=ratios
     )
 
     return {
@@ -151,12 +174,14 @@ def calculate_health_score(nutrition_data: dict) -> dict:
 
 def _generate_insights(
     score, sugar, added_sg, sat_fat, sodium, trans,
-    protein, fiber, carbs, energy, chol, nutrition_data: dict
+    protein, fiber, carbs, energy, chol, nutrition_data: dict, ratios: dict = None
 ) -> list[str]:
     """
     Generate specific, actionable, evidence-based insight strings.
-    Tries Gemini AI first; falls back to deterministic rules.
+    Tries Gemini AI first; falls back to deterministic rules using scaled ratios.
     """
+    if ratios is None:
+        ratios = {"sugar": 1.0, "added": 1.0, "sat": 1.0, "sod": 1.0, "trans": 1.0, "en": 1.0, "pro": 1.0, "fib": 1.0}
     # Try Gemini-enhanced insights
     gemini_insights = _gemini_insights(nutrition_data, score)
     if gemini_insights:
@@ -166,63 +191,63 @@ def _generate_insights(
     insights = []
 
     # Energy density
-    if energy > 500:
+    if energy > 500 * ratios["en"]:
         insights.append(
             f"Very high energy density ({energy:.0f} kcal/100g). "
-            "Limit portion size to manage caloric intake."
+            "Limit portion size to manage caloric intake for your age group."
         )
-    elif energy > 350:
+    elif energy > 350 * ratios["en"]:
         insights.append(
             f"Moderate-high caloric density ({energy:.0f} kcal/100g). "
             "Be mindful of serving size."
         )
 
     # Sugars
-    if sugar > 22.5:
+    if sugar > 22.5 * ratios["sugar"]:
         insights.append(
-            f"High sugar content ({sugar:.1f}g/100g — above 22.5g FSA threshold). "
+            f"High sugar content ({sugar:.1f}g/100g — above {(22.5 * ratios['sugar']):.1f}g threshold for your age group). "
             "Frequent consumption may contribute to tooth decay and blood sugar spikes."
         )
-    elif sugar > 10.0:
+    elif sugar > 10.0 * ratios["sugar"]:
         insights.append(f"Moderate sugar level ({sugar:.1f}g/100g). Consume in moderation.")
 
     # Added sugars
-    if added_sg > 10.0:
+    if added_sg > 10.0 * ratios["added"]:
         insights.append(
             f"High added sugars ({added_sg:.1f}g/100g). "
             "WHO recommends keeping added sugars below 5% of total energy intake."
         )
-    elif added_sg > 5.0:
+    elif added_sg > 5.0 * ratios["added"]:
         insights.append(f"Moderate added sugars ({added_sg:.1f}g/100g).")
 
     # Saturated fat
-    if sat_fat > 5.0:
+    if sat_fat > 5.0 * ratios["sat"]:
         insights.append(
             f"High saturated fat ({sat_fat:.1f}g/100g). "
             "Elevated saturated fat raises LDL cholesterol — limit to protect heart health."
         )
-    elif sat_fat > 2.5:
-        insights.append(f"Moderate saturated fat ({sat_fat:.1f}g/100g). Keep daily intake below 20g.")
+    elif sat_fat > 2.5 * ratios["sat"]:
+        insights.append(f"Moderate saturated fat ({sat_fat:.1f}g/100g).")
 
     # Trans fat
-    if trans > 0.5:
+    if trans > 0.5 * ratios["trans"]:
         insights.append(
             f"Contains significant trans fat ({trans:.2f}g/100g). "
             "WHO advises zero trans fat intake — linked to heart disease risk."
         )
-    elif trans > 0.1:
+    elif trans > 0.1 * ratios["trans"]:
         insights.append(
             f"Contains trace trans fat ({trans:.2f}g/100g). Limit consumption."
         )
 
     # Sodium
-    if sodium > 600.0:
+    if sodium > 600.0 * ratios["sod"]:
         insights.append(
             f"Very high sodium ({sodium:.0f}mg/100g). "
-            "Exceeds FSA high threshold. May contribute to hypertension if consumed regularly."
+            f"Exceeds high threshold ({(600 * ratios['sod']):.0f}mg) for your age. May contribute to hypertension if consumed regularly."
         )
-    elif sodium > 300.0:
-        insights.append(f"Moderate sodium ({sodium:.0f}mg/100g). Keep daily total below 2000mg.")
+    elif sodium > 300.0 * ratios["sod"]:
+        insights.append(f"Moderate sodium ({sodium:.0f}mg/100g).")
 
     # Cholesterol
     if chol > 100:
@@ -232,25 +257,25 @@ def _generate_insights(
         )
 
     # Protein
-    if protein > 15.0:
+    if protein > 15.0 * ratios["pro"]:
         insights.append(
             f"Excellent protein source ({protein:.1f}g/100g). "
             "Supports muscle repair, satiety and metabolic health."
         )
-    elif protein > 10.0:
+    elif protein > 10.0 * ratios["pro"]:
         insights.append(f"Good protein content ({protein:.1f}g/100g).")
-    elif protein > 5.0:
+    elif protein > 5.0 * ratios["pro"]:
         insights.append(f"Moderate protein source ({protein:.1f}g/100g).")
 
     # Fiber
-    if fiber > 6.0:
+    if fiber > 6.0 * ratios["fib"]:
         insights.append(
             f"High dietary fiber ({fiber:.1f}g/100g). "
             "Promotes gut health and sustained energy release."
         )
-    elif fiber > 3.0:
+    elif fiber > 3.0 * ratios["fib"]:
         insights.append(f"Good fiber content ({fiber:.1f}g/100g).")
-    elif fiber < 1.0 and carbs > 20.0:
+    elif fiber < 1.0 * ratios["fib"] and carbs > 20.0:
         insights.append(
             "Low fiber relative to carbohydrate content. "
             "These carbs may cause rapid blood sugar rises."

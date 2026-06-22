@@ -46,6 +46,62 @@ WHO_LIMITS = {
     "cholesterol": 300.0
 }
 
+AGE_GROUP_LIMITS = {
+    "toddler": { # 1-3 years
+        "energy_kcal": 1000.0, "protein_g": 13.0, "carbohydrates_g": 130.0, "sugars_g": 25.0, "added_sugars_g": 25.0,
+        "fat_g": 40.0, "saturated_fat_g": 11.0, "trans_fat_g": 1.0, "fiber_g": 14.0, "sodium_mg": 1200.0, "cholesterol_mg": 300.0,
+        "calories": 1000.0, "protein": 13.0, "total_carbohydrates": 130.0, "total_sugars": 25.0, "added_sugars": 25.0,
+        "total_fat": 40.0, "saturated_fat": 11.0, "trans_fat": 1.0, "dietary_fiber": 14.0, "sodium": 1200.0, "cholesterol": 300.0
+    },
+    "child": { # 4-8 years
+        "energy_kcal": 1400.0, "protein_g": 19.0, "carbohydrates_g": 130.0, "sugars_g": 35.0, "added_sugars_g": 35.0,
+        "fat_g": 50.0, "saturated_fat_g": 15.0, "trans_fat_g": 1.5, "fiber_g": 18.0, "sodium_mg": 1500.0, "cholesterol_mg": 300.0,
+        "calories": 1400.0, "protein": 19.0, "total_carbohydrates": 130.0, "total_sugars": 35.0, "added_sugars": 35.0,
+        "total_fat": 50.0, "saturated_fat": 15.0, "trans_fat": 1.5, "dietary_fiber": 18.0, "sodium": 1500.0, "cholesterol": 300.0
+    },
+    "older_child": { # 9-13 years
+        "energy_kcal": 1800.0, "protein_g": 34.0, "carbohydrates_g": 130.0, "sugars_g": 45.0, "added_sugars_g": 45.0,
+        "fat_g": 60.0, "saturated_fat_g": 18.0, "trans_fat_g": 2.0, "fiber_g": 22.0, "sodium_mg": 1800.0, "cholesterol_mg": 300.0,
+        "calories": 1800.0, "protein": 34.0, "total_carbohydrates": 130.0, "total_sugars": 45.0, "added_sugars": 45.0,
+        "total_fat": 60.0, "saturated_fat": 18.0, "trans_fat": 2.0, "dietary_fiber": 22.0, "sodium": 1800.0, "cholesterol": 300.0
+    },
+    "teen": { # 14-18 years
+        "energy_kcal": 2200.0, "protein_g": 46.0, "carbohydrates_g": 130.0, "sugars_g": 50.0, "added_sugars_g": 50.0,
+        "fat_g": 70.0, "saturated_fat_g": 20.0, "trans_fat_g": 2.2, "fiber_g": 25.0, "sodium_mg": 2300.0, "cholesterol_mg": 300.0,
+        "calories": 2200.0, "protein": 46.0, "total_carbohydrates": 130.0, "total_sugars": 50.0, "added_sugars": 50.0,
+        "total_fat": 70.0, "saturated_fat": 20.0, "trans_fat": 2.2, "dietary_fiber": 25.0, "sodium": 2300.0, "cholesterol": 300.0
+    },
+    "adult": { # 19-50 years
+        "energy_kcal": 2000.0, "protein_g": 50.0, "carbohydrates_g": 260.0, "sugars_g": 50.0, "added_sugars_g": 50.0,
+        "fat_g": 70.0, "saturated_fat_g": 20.0, "trans_fat_g": 2.2, "fiber_g": 25.0, "sodium_mg": 2000.0, "cholesterol_mg": 300.0,
+        "calories": 2000.0, "protein": 50.0, "total_carbohydrates": 260.0, "total_sugars": 50.0, "added_sugars": 50.0,
+        "total_fat": 70.0, "saturated_fat": 20.0, "trans_fat": 2.2, "dietary_fiber": 25.0, "sodium": 2000.0, "cholesterol": 300.0
+    },
+    "senior": { # 51+ years
+        "energy_kcal": 1800.0, "protein_g": 50.0, "carbohydrates_g": 260.0, "sugars_g": 40.0, "added_sugars_g": 40.0,
+        "fat_g": 60.0, "saturated_fat_g": 18.0, "trans_fat_g": 2.0, "fiber_g": 25.0, "sodium_mg": 1500.0, "cholesterol_mg": 300.0,
+        "calories": 1800.0, "protein": 50.0, "total_carbohydrates": 260.0, "total_sugars": 40.0, "added_sugars": 40.0,
+        "total_fat": 60.0, "saturated_fat": 18.0, "trans_fat": 2.0, "dietary_fiber": 25.0, "sodium": 1500.0, "cholesterol": 300.0
+    }
+}
+
+def get_limits_for_age(age: int) -> dict:
+    if age is None:
+        return WHO_LIMITS
+    
+    if age <= 3:
+        return AGE_GROUP_LIMITS["toddler"]
+    elif age <= 8:
+        return AGE_GROUP_LIMITS["child"]
+    elif age <= 13:
+        return AGE_GROUP_LIMITS["older_child"]
+    elif age <= 18:
+        return AGE_GROUP_LIMITS["teen"]
+    elif age <= 50:
+        return AGE_GROUP_LIMITS["adult"]
+    else:
+        return AGE_GROUP_LIMITS["senior"]
+
 DEFAULT_UNITS = {
     "serving_size": "g",
     "energy_kcal": "kcal",

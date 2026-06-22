@@ -12,6 +12,12 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;700;800&display=swap"
         rel="stylesheet">
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/frontend/manifest.json">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- html2pdf.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 </head>
 
 <body>
@@ -71,6 +77,7 @@
             </nav>
 
             <div class="user-header-info">
+                <div class="theme-toggle" id="theme-toggle" style="cursor: pointer; margin-right: 15px; font-size: 1.2rem;">🌙</div>
                 <div class="status-indicator">
                     <div class="pulse"></div>
                     <span id="user-display-name">Active User</span>
@@ -100,6 +107,7 @@
                         </div>
 
                         <button id="analyze-btn" class="primary-btn hidden">Analyze Nutrition Label</button>
+                        <button id="barcode-btn" class="primary-btn secondary-btn" style="margin-top: 1rem;">Scan Barcode Instead</button>
                     </div>
 
                     <!-- Progress Activity log -->
@@ -122,7 +130,10 @@
                         <div class="card glass-card score-card">
                             <div class="results-header">
                                 <h3>Health Assessment</h3>
-                                <div id="risk-badge" class="risk-badge">Low Risk</div>
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <button id="download-pdf-btn" class="primary-btn secondary-btn" style="padding: 5px 10px; font-size: 0.8rem; margin: 0;">Export PDF</button>
+                                    <div id="risk-badge" class="risk-badge">Low Risk</div>
+                                </div>
                             </div>
                             
                             <div class="score-panel">
@@ -193,6 +204,16 @@
                     </p>
 
                     <div class="toggles-grid">
+                        <label class="toggle-row" style="grid-column: 1 / -1; margin-bottom: 1rem;">
+                            <div class="toggle-info">
+                                <span>Age (Years)</span>
+                                <small>Used to calculate accurate daily limits (Toddler, Child, Teen, Adult, Senior).</small>
+                            </div>
+                            <div class="toggle-switch">
+                                <input type="number" id="user_age" min="1" max="120" style="width: 70px; padding: 5px; border-radius: 6px; border: 1px solid var(--card-border); background: var(--bg-app); color: var(--text-main); font-family: inherit; font-size: 1rem;" placeholder="Age">
+                            </div>
+                        </label>
+
                         <label class="toggle-row">
                             <div class="toggle-info">
                                 <span>Diabetic (Sugar Sensitive)</span>
@@ -319,6 +340,14 @@
                         </div>
                     </div>
 
+                    <!-- Macro Chart -->
+                    <div class="chart-container" style="background-color: var(--bg-app); border-radius: 12px; padding: 1.5rem; margin-bottom: 2.5rem; text-align: center;">
+                        <h4 style="font-family: var(--font-heading); margin-top: 0; color: var(--text-main); font-size: 1.1rem; margin-bottom: 1rem;">Daily Macros Breakdown</h4>
+                        <div style="width: 250px; height: 250px; margin: 0 auto;">
+                            <canvas id="macroChart"></canvas>
+                        </div>
+                    </div>
+
                     <!-- Consumed Items List -->
                     <div>
                         <h4 style="font-family: var(--font-heading); font-size: 1.2rem; color: var(--text-main); margin-bottom: 1rem;">Consumed Foods Today</h4>
@@ -347,6 +376,15 @@
 
     <!-- App Logic -->
     <script src="/frontend/app.js"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/frontend/sw.js');
+            });
+        }
+    </script>
 </body>
 
 </html>
