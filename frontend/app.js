@@ -55,6 +55,72 @@ document.addEventListener('DOMContentLoaded', () => {
         console.warn('Firebase Auth not available:', e.message);
     }
 
+    // Helper: sync a Firebase user with our backend after login
+    async function syncFirebaseUserWithBackend(user) {
+        const email = user.email;
+        const name = user.displayName || email.split('@')[0];
+        const photoURL = user.photoURL;
+
+        loginStatus.textContent = 'FIREBASE_AUTH_SUCCESS. SYNCING_WITH_SERVER...';
+        loginStatus.style.color = 'var(--success)';
+
+        const response = await fetch('/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, name })
+        });
+        const data = await response.json();
+
+        if (data.status === 'success') {
+            currentUser = { email, name, photoURL, ...data.user };
+            userDisplayName.textContent = name.toUpperCase();
+            if (photoURL) {
+                profileAvatar.src = photoURL;
+                profileAvatar.style.display = 'inline-block';
+            }
+            profileEmail.textContent = email;
+            loginOverlay.classList.remove('active');
+            mainApp.style.display = 'block';
+
+            if (data.is_new_user) {
+                switchTab('tab-profile');
+                addLog('NEW_USER_DETECTED. CONFIGURE_HEALTH_PROFILE.', 'warn');
+            } else {
+                if (currentUser.age) document.getElementById('user_age').value = currentUser.age;
+                document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
+                document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
+                document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
+                document.getElementById('weight_loss_goal').checked = !!currentUser.weight_loss_goal;
+                document.getElementById('is_vegan').checked = !!currentUser.is_vegan;
+                switchTab('tab-scan');
+                addLog(`SESSION_INITIALIZED: ${name} (${email})`, 'success');
+            }
+            fetchDailyIntake();
+        } else {
+            loginStatus.textContent = 'SERVER_SYNC_FAILED. TRY_AGAIN.';
+            loginStatus.style.color = 'var(--danger)';
+        }
+    }
+
+    // Handle redirect result on page load (for signInWithRedirect flow)
+    try {
+        firebase.auth().getRedirectResult().then(async (result) => {
+            if (result && result.user) {
+                loginStatus.textContent = 'GOOGLE_REDIRECT_SUCCESS. SYNCING...';
+                loginStatus.style.color = 'var(--success)';
+                await syncFirebaseUserWithBackend(result.user);
+            }
+        }).catch((error) => {
+            if (error.code && error.code !== 'auth/no-current-user') {
+                console.warn('Redirect result error:', error);
+                loginStatus.textContent = `REDIRECT_AUTH_ERROR: ${error.code}`;
+                loginStatus.style.color = 'var(--danger)';
+            }
+        });
+    } catch (e) {
+        console.warn('getRedirectResult not available:', e);
+    }
+
     btnGoogleLogin.addEventListener('click', async () => {
         btnGoogleLogin.disabled = true;
         btnGoogleLogin.querySelector('span').textContent = 'AUTHENTICATING...';
@@ -64,76 +130,46 @@ document.addEventListener('DOMContentLoaded', () => {
             loginStatus.textContent = 'FIREBASE_AUTH_UNAVAILABLE. USE DEV BYPASS.';
             loginStatus.style.color = 'var(--danger)';
             btnGoogleLogin.disabled = false;
-            btnGoogleLogin.querySelector('span').textContent = 'SIGN IN WITH GOOGLE';
+            btnGoogleLogin.querySelector('span').textContent = 'Sign in with Google';
             return;
         }
 
         try {
+            // Try popup first
             const result = await firebase.auth().signInWithPopup(googleProvider);
-            const user = result.user;
-            const email = user.email;
-            const name = user.displayName || email.split('@')[0];
-            const photoURL = user.photoURL;
-
-            loginStatus.textContent = 'FIREBASE_AUTH_SUCCESS. SYNCING_WITH_SERVER...';
-            loginStatus.style.color = 'var(--success)';
-
-            // Sync with our backend
-            const response = await fetch('/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, name })
-            });
-            const data = await response.json();
-
-            if (data.status === 'success') {
-                currentUser = { email, name, photoURL, ...data.user };
-
-                // Update header UI
-                userDisplayName.textContent = name.toUpperCase();
-                if (photoURL) {
-                    profileAvatar.src = photoURL;
-                    profileAvatar.style.display = 'inline-block';
-                }
-                profileEmail.textContent = email;
-
-                loginOverlay.classList.remove('active');
-                mainApp.style.display = 'block';
-
-                if (data.is_new_user) {
-                    // Force new users to fill out their health profile
-                    switchTab('tab-profile');
-                    addLog('NEW_USER_DETECTED. CONFIGURE_HEALTH_PROFILE.', 'warn');
-                } else {
-                    // Populate existing profile toggles from DB
-                    if (currentUser.age) document.getElementById('user_age').value = currentUser.age;
-                    document.getElementById('is_diabetic').checked = !!currentUser.is_diabetic;
-                    document.getElementById('has_high_bp').checked = !!currentUser.has_high_bp;
-                    document.getElementById('heart_condition').checked = !!currentUser.heart_condition;
-                    document.getElementById('weight_loss_goal').checked = !!currentUser.weight_loss_goal;
-                    document.getElementById('is_vegan').checked = !!currentUser.is_vegan;
-                    switchTab('tab-scan');
-                    addLog(`SESSION_INITIALIZED: ${name} (${email})`, 'success');
-                }
-            } else {
-                loginStatus.textContent = 'SERVER_SYNC_FAILED. TRY_AGAIN.';
-                loginStatus.style.color = 'var(--danger)';
-            }
+            await syncFirebaseUserWithBackend(result.user);
         } catch (error) {
-            console.error('Login error:', error);
-            if (error.code === 'auth/popup-closed-by-user') {
-                loginStatus.textContent = 'LOGIN_CANCELLED_BY_USER.';
+            console.error('Popup login error:', error);
+
+            // If popup was blocked or domain is unauthorized, fall back to redirect
+            if (
+                error.code === 'auth/popup-blocked' ||
+                error.code === 'auth/unauthorized-domain' ||
+                error.code === 'auth/operation-not-supported-in-this-environment'
+            ) {
+                loginStatus.textContent = 'POPUP_BLOCKED. REDIRECTING_TO_GOOGLE...';
+                loginStatus.style.color = 'var(--warning)';
+                try {
+                    await firebase.auth().signInWithRedirect(googleProvider);
+                    // Page will redirect — no further code runs here
+                    return;
+                } catch (redirectErr) {
+                    loginStatus.textContent = `REDIRECT_ERROR: ${redirectErr.code || redirectErr.message}`;
+                    loginStatus.style.color = 'var(--danger)';
+                }
+            } else if (error.code === 'auth/popup-closed-by-user') {
+                loginStatus.textContent = 'Login cancelled. Please try again.';
             } else if (error.code === 'auth/network-request-failed') {
-                loginStatus.textContent = 'NETWORK_ERROR. CHECK_CONNECTION.';
-            } else if (error.message && error.message.includes('auth/configuration-not-found')) {
-                loginStatus.textContent = 'FIREBASE_NOT_CONFIGURED. UPDATE firebase_config.js';
+                loginStatus.textContent = 'Network error. Check your internet connection.';
+            } else if (error.code === 'auth/configuration-not-found') {
+                loginStatus.textContent = 'Firebase not configured. Check firebase_config.js.';
             } else {
                 loginStatus.textContent = `AUTH_ERROR: ${error.code || error.message || 'UNKNOWN'}`;
             }
             loginStatus.style.color = 'var(--danger)';
         } finally {
             btnGoogleLogin.disabled = false;
-            btnGoogleLogin.querySelector('span').textContent = 'SIGN IN WITH GOOGLE';
+            btnGoogleLogin.querySelector('span').textContent = 'Sign in with Google';
         }
     });
 
