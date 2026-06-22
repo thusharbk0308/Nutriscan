@@ -7,6 +7,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from parser.nutrient_parser import extract_nutrition
 from validator.bounds_validator import validate_bounds
 from scoring.rule_scorer import calculate_health_score
+from scoring.hybrid_scorer import NutriScorer
 
 class TestNutriScanPipeline(unittest.TestCase):
     def test_synonym_and_unit_parsing(self):
@@ -101,6 +102,103 @@ class TestNutriScanPipeline(unittest.TestCase):
         self.assertIn(score_res["rating"], ["Poor", "Moderate"])
         self.assertTrue(any("sugar" in ins.lower() for ins in score_res["insights"]))
         self.assertTrue(any("sodium" in ins.lower() for ins in score_res["insights"]))
+
+    def test_age_based_scoring_scaling(self):
+        # A toddler has much lower sugar tolerance than an adult.
+        # Let's test a product with 12g sugar per 100g.
+        # For adults, 12g sugar is moderate (penalty is lower).
+        # For toddlers, 12g sugar (toddler limit is 25g vs adult 50g, ratio is 0.5)
+        # 12g is > 10 * 0.5 (5g), so it triggers high or moderate sugar penalties.
+        # Let's verify that the health score is lower for a toddler compared to an adult.
+        sugar_data = {
+            "serving_size": 100.0,
+            "sugars_g": 12.0
+        }
+        adult_res = calculate_health_score(sugar_data, user_profile={"age": 30})
+        toddler_res = calculate_health_score(sugar_data, user_profile={"age": 2})
+        self.assertGreater(adult_res["health_score"], toddler_res["health_score"])
+
+    def test_personalization_diabetic(self):
+        # Diabetic profile gets penalized if sugars_g > 10g/100g
+        sweet_data = {
+            "serving_size": 100.0,
+            "sugars_g": 15.0
+        }
+        scorer = NutriScorer()
+        normal_score = scorer.get_final_score(sweet_data, user_profile={"is_diabetic": False})["health_score"]
+        diabetic_score = scorer.get_final_score(sweet_data, user_profile={"is_diabetic": True})["health_score"]
+        # Diabetic penalty should be applied
+        self.assertGreater(normal_score, diabetic_score)
+
+    def test_personalization_high_bp(self):
+        # High BP profile gets penalized if sodium_mg > 300mg/100g
+        salty_data = {
+            "serving_size": 100.0,
+            "sodium_mg": 400.0
+        }
+        scorer = NutriScorer()
+        normal_score = scorer.get_final_score(salty_data, user_profile={"has_high_bp": False})["health_score"]
+        high_bp_score = scorer.get_final_score(salty_data, user_profile={"has_high_bp": True})["health_score"]
+        self.assertGreater(normal_score, high_bp_score)
+
+    def test_personalization_heart_condition(self):
+        # Heart condition profile gets penalized for high saturated fat / cholesterol
+        heart_data = {
+            "serving_size": 100.0,
+            "saturated_fat_g": 4.0,
+            "cholesterol_mg": 60.0
+        }
+        scorer = NutriScorer()
+        normal_score = scorer.get_final_score(heart_data, user_profile={"heart_condition": False})["health_score"]
+        heart_score = scorer.get_final_score(heart_data, user_profile={"heart_condition": True})["health_score"]
+        self.assertGreater(normal_score, heart_score)
+
+    def test_personalization_weight_loss(self):
+        # Weight loss profile gets penalized for high calories (>250 kcal/100g)
+        caloric_data = {
+            "serving_size": 100.0,
+            "energy_kcal": 300.0
+        }
+        scorer = NutriScorer()
+        normal_score = scorer.get_final_score(caloric_data, user_profile={"weight_loss_goal": False})["health_score"]
+        weight_loss_score = scorer.get_final_score(caloric_data, user_profile={"weight_loss_goal": True})["health_score"]
+        self.assertGreater(normal_score, weight_loss_score)
+
+    def test_personalization_vegan(self):
+        # Vegan profile gets penalized for presence of cholesterol (>0 mg)
+        non_vegan_data = {
+            "serving_size": 100.0,
+            "cholesterol_mg": 10.0
+        }
+        scorer = NutriScorer()
+        normal_score = scorer.get_final_score(non_vegan_data, user_profile={"is_vegan": False})["health_score"]
+        vegan_score = scorer.get_final_score(non_vegan_data, user_profile={"is_vegan": True})["health_score"]
+        self.assertGreater(normal_score, vegan_score)
+
+    def test_daily_budget_penalties_and_warnings(self):
+        # Test daily totals warnings and penalties
+        nutrition_data = {
+            "serving_size": 100.0,
+            "sugars_g": 10.0
+        }
+        scorer = NutriScorer()
+        
+        # Scenario A: Daily intake of sugar is below limit
+        res_ok = scorer.get_final_score(
+            nutrition_data,
+            user_profile={"age": 30},
+            daily_totals={"sugars_g": 5.0}
+        )
+        
+        # Scenario B: Daily intake of sugar already exceeds limit (50g for adult)
+        res_exceeded = scorer.get_final_score(
+            nutrition_data,
+            user_profile={"age": 30},
+            daily_totals={"sugars_g": 60.0}
+        )
+        
+        self.assertGreater(res_ok["health_score"], res_exceeded["health_score"])
+        self.assertTrue(any("Limit Exceeded" in item["message"] for item in res_exceeded["flags"]))
 
 if __name__ == "__main__":
     unittest.main()
